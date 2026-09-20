@@ -11,6 +11,7 @@ from backend.schemas.models import (
     AnalysisRequest,
     AnalysisResponse,
     HistoryResponse,
+    SearchResponse,
 )
 from backend.store.chroma_store import get_store
 
@@ -49,6 +50,18 @@ def history(symbol: str = Query(description="Stock ticker"), limit: int = Query(
     store = get_store()
     items = store.get_history(symbol=symbol, limit=limit)
     return HistoryResponse(items=items, total=len(items))
+
+
+@router.get("/search", response_model=SearchResponse)
+def search(
+    q: str = Query(description="自然语言检索词，如「高风险的消费类股票分析」"),
+    limit: int = Query(default=5, le=20),
+    symbol: str | None = Query(default=None, description="限定在某支股票范围内检索"),
+):
+    """Semantic search over stored reports."""
+    store = get_store()
+    items = store.search_semantic(q, n=limit, symbol=symbol)
+    return SearchResponse(items=items, total=len(items))
 
 
 @router.get("/export/{symbol}")

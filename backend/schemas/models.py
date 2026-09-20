@@ -85,3 +85,17 @@ class HistoryItem(BaseModel):
 class HistoryResponse(BaseModel):
     items: list[HistoryItem]
     total: int
+
+
+class SearchHit(BaseModel):
+    id: str
+    symbol: str
+    name: str
+    timestamp: datetime
+    score: float  # 余弦相似度 0~1，越大越相似
+    text: str
+
+
+class SearchResponse(BaseModel):
+    items: list[SearchHit]
+    total: int

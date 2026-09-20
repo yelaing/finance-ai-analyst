@@ -11,7 +11,8 @@ AI 驱动的上市公司财报 + 舆情综合分析平台。
 - **舆情分析** — 汇总近期新闻，量化市场情绪（-1.0 ~ 1.0），提取关键驱动因素
 - **多空辩论** — 多头 / 空头分析师并行论证，各自给出置信度
 - **风控仲裁** — 独立第三方视角对比多空分歧，标注风险等级并给出综合结论
-- **历史存储** — 分析报告持久化，支持按股票代码检索历史
+- **历史存储** — 分析报告持久化到 JSON，支持按股票代码精确检索历史
+- **语义检索** — 报告向量化存入 ChromaDB，支持用自然语言跨股票检索历史报告
 
 ## 架构
 
@@ -20,7 +21,7 @@ AI 驱动的上市公司财报 + 舆情综合分析平台。
                               ↓
                     akshare / yfinance (数据)
                               ↓
-                      JSON 文件存储 (历史)
+       JSON 文件存储 (历史) + ChromaDB 向量索引 (语义检索)
 ```
 
 四阶段分析管线：
@@ -63,7 +64,23 @@ python -m streamlit run frontend/app.py --server.port 8501
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1   # 阿里云百炼
 LLM_API_KEY=sk-your-key
 LLM_MODEL=qwen-plus
+EMBEDDING_MODEL=text-embedding-v3   # 语义检索用的向量化模型，需与上者同一家服务
 ```
+
+## 语义检索
+
+报告会按 `fundamental_summary + conclusion + 风险点` 等关键文本向量化，存入 ChromaDB
+的 `analysis_reports` collection（余弦距离）。可以跨股票用自然语言检索历史报告：
+
+```bash
+curl "http://localhost:8000/api/v1/search?q=高风险的消费类股票分析&limit=5"
+curl "http://localhost:8000/api/v1/search?q=现金流质量&symbol=600519"
+```
+
+返回每条的 `symbol` / `name` / `timestamp` / `score`（余弦相似度，越大越相似）/ `text`。
+
+向量索引由 JSON 文件派生：写入报告时双写（JSON 为准，索引失败只告警不影响落盘），
+启动时比对 id 差集自动补齐缺失的向量，embedding 模型变更则清空重建。
 
 ## 技术栈
 
@@ -73,7 +90,7 @@ LLM_MODEL=qwen-plus
 | 后端 | FastAPI + Uvicorn |
 | AI 框架 | LangChain (LCEL) + langchain-openai / OpenAI SDK |
 | 数据 | akshare (A股) / yfinance (美股) |
-| 存储 | JSON 文件持久化 |
+| 存储 | JSON 文件 + ChromaDB 向量存储与相似度检索 |
 
 ## 示例
 
