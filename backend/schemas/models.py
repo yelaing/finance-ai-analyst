@@ -28,6 +28,28 @@ class RiskItem(BaseModel):
     detail: str
 
 
+class TechnicalIndicators(BaseModel):
+    ma_5: Optional[float] = None
+    ma_20: Optional[float] = None
+    ma_60: Optional[float] = None
+    macd_dif: Optional[float] = None
+    macd_dea: Optional[float] = None
+    macd_bar: Optional[float] = None
+    rsi_14: Optional[float] = None
+    kdj_k: Optional[float] = None
+    kdj_d: Optional[float] = None
+    kdj_j: Optional[float] = None
+    trend_summary: str = ""
+    price_history: list[dict] = []
+
+
+class DebateThesis(BaseModel):
+    analyst: str  # "bull" or "bear"
+    viewpoint: str
+    key_evidence: list[str]
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class AnalysisReport(BaseModel):
     symbol: str
     name: str
@@ -38,6 +60,10 @@ class AnalysisReport(BaseModel):
     risks: list[RiskItem]
     conclusion: str
     sources: list[str] = []
+    technical: Optional[TechnicalIndicators] = None
+    bull_thesis: Optional[DebateThesis] = None
+    bear_thesis: Optional[DebateThesis] = None
+    debate_verdict: Optional[str] = None
 
 
 class AnalysisResponse(BaseModel):

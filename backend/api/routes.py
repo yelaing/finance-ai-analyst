@@ -2,9 +2,12 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 
 from backend.pipeline.analyzer import run_analysis
+from backend.pipeline.report_export import render_markdown
 from backend.schemas.models import (
+    AnalysisReport,
     AnalysisRequest,
     AnalysisResponse,
     HistoryResponse,
@@ -21,6 +24,16 @@ def analyze(req: AnalysisRequest):
     store = get_store()
 
     try:
+        cached = store.get_latest(req.symbol)
+        if cached:
+            ts = cached.get("timestamp")
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts)
+            if ts.date() == datetime.now().date():
+                from backend.schemas.models import AnalysisReport
+                report = AnalysisReport(**cached)
+                return AnalysisResponse(status="ok", report=report, from_cache=True, cached_at=ts)
+
         report = run_analysis(req.symbol, req.market, req.include_sentiment)
         store.save(report)
         return AnalysisResponse(status="ok", report=report)
@@ -36,3 +49,19 @@ def history(symbol: str = Query(description="Stock ticker"), limit: int = Query(
     store = get_store()
     items = store.get_history(symbol=symbol, limit=limit)
     return HistoryResponse(items=items, total=len(items))
+
+
+@router.get("/export/{symbol}")
+def export_report(symbol: str):
+    """Export latest analysis report as Markdown."""
+    store = get_store()
+    cached = store.get_latest(symbol)
+    if not cached:
+        raise HTTPException(status_code=404, detail="未找到该股票的分析报告")
+    report = AnalysisReport(**cached)
+    md = render_markdown(report)
+    return Response(
+        content=md,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={symbol}_report.md"},
+    )
