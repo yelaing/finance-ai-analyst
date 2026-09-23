@@ -3,15 +3,20 @@ import time
 
 from openai import OpenAI
 
-from backend.config import EMBEDDING_MODEL, LLM_API_KEY, LLM_BASE_URL
+from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+_settings = get_settings()
 
 # DashScope text-embedding-v3 单次请求硬上限：实测 11 条即 400
 _BATCH_SIZE = 10
 _MAX_RETRIES = 2
 
-_client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
+_client = OpenAI(
+    base_url=_settings.llm_base_url,
+    api_key=_settings.llm_api_key.get_secret_value(),
+)
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
@@ -41,5 +46,5 @@ def _embed_batch(batch: list[str]) -> list[list[float]]:
 
 
 def _embed_once(batch: list[str]) -> list[list[float]]:
-    resp = _client.embeddings.create(model=EMBEDDING_MODEL, input=batch)
+    resp = _client.embeddings.create(model=_settings.embedding_model, input=batch)
     return [item.embedding for item in resp.data]

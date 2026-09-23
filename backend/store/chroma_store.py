@@ -6,16 +6,18 @@ from datetime import datetime
 
 import chromadb
 
-from backend.config import CHROMA_PERSIST_DIR, EMBEDDING_MODEL
+from backend.config import get_settings
 from backend.schemas.models import AnalysisReport, HistoryItem
 from backend.store.embeddings import embed_texts
 
 logger = logging.getLogger(__name__)
 
+_settings = get_settings()
+
 DATA_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "data", "reports.json")
 COLLECTION_NAME = "analysis_reports"
 # embedding_model 记在 collection 上，用来防止不同模型的向量混进同一个索引
-COLLECTION_METADATA = {"hnsw:space": "cosine", "embedding_model": EMBEDDING_MODEL}
+COLLECTION_METADATA = {"hnsw:space": "cosine", "embedding_model": _settings.embedding_model}
 _lock = threading.Lock()
 
 
@@ -65,7 +67,7 @@ def _meta(record: dict) -> dict:
 class ReportStore:
     def __init__(self):
         self._records: list[dict] = self._load()
-        self._client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+        self._client = chromadb.PersistentClient(path=_settings.chroma_persist_dir)
         self._collection = self._open_collection()
         self._sync_index()
 

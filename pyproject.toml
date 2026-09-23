@@ -29,6 +29,6 @@ disallow_untyped_defs = false
 
 # 新增的基础设施代码：强制完整类型标注
 [[tool.mypy.overrides]]
-module = ["backend.core.*", "backend.api.middleware"]
+module = ["backend.core.*", "backend.api.middleware", "backend.api.errors"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

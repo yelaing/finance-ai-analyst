@@ -1,5 +1,15 @@
+import logging
+import os
 import re
+import time
 from dataclasses import dataclass, field
+
+from backend.config import get_settings
+from backend.core.errors import InvalidSymbolError, UnsupportedMarketError
+
+logger = logging.getLogger(__name__)
+
+_settings = get_settings()
 
 
 @dataclass
@@ -23,7 +33,7 @@ def detect_market(symbol: str) -> str:
         return "a_share"
     if re.match(r"^[A-Za-z]{1,5}$", symbol):
         return "us"
-    raise ValueError(f"无法自动识别 {symbol} 的市场，请手动指定 market 参数")
+    raise InvalidSymbolError(f"无法自动识别 {symbol} 的市场，请手动指定 market 参数")
 
 
 def _fetch_a_share(symbol: str) -> FetchResult:
@@ -55,6 +65,7 @@ def _fetch_a_share(symbol: str) -> FetchResult:
         sources.append("东方财富个股信息")
 
     except Exception as e:
+        logger.warning("A股个股信息获取失败 symbol=%s: %s", symbol, e)
         financial_parts.append(f"[个股信息获取失败: {e}]")
 
     try:
@@ -70,8 +81,8 @@ def _fetch_a_share(symbol: str) -> FetchResult:
                 if val is not None and str(val) not in ("nan", "None", ""):
                     financial_parts.append(f"{col}：{val}")
             sources.append("同花顺财务摘要")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("A股财务摘要获取失败 symbol=%s: %s", symbol, e)
 
     try:
         import akshare as ak
@@ -84,7 +95,8 @@ def _fetch_a_share(symbol: str) -> FetchResult:
                 time = row.get("发布时间", "")
                 news_parts.append(f"- [{time}] {title}")
             sources.append("东方财富新闻")
-    except Exception:
+    except Exception as e:
+        logger.warning("A股新闻获取失败 symbol=%s: %s", symbol, e)
         news_parts.append("[新闻获取失败]")
 
     return FetchResult(
@@ -96,10 +108,11 @@ def _fetch_a_share(symbol: str) -> FetchResult:
 
 
 def _fetch_us(symbol: str) -> FetchResult:
-    import os
-
-    os.environ.setdefault("HTTP_PROXY", "http://127.0.0.1:7897")
-    os.environ.setdefault("HTTPS_PROXY", "http://127.0.0.1:7897")
+    # 美股走 yfinance，国内网络通常需要代理。代理地址来自配置（本地写在 .env 里），
+    # 容器内为空则完全不设置，避免把请求指向不存在的代理
+    if _settings.http_proxy:
+        os.environ.setdefault("HTTP_PROXY", _settings.http_proxy)
+        os.environ.setdefault("HTTPS_PROXY", _settings.http_proxy)
 
     info = StockInfo(symbol=symbol.upper(), name=symbol.upper(), market="us")
     financial_parts = []
@@ -134,8 +147,8 @@ def _fetch_us(symbol: str) -> FetchResult:
                 latest_q = fin.iloc[:, 0]
                 financial_parts.append("\n--- 最新季度财务 ---")
                 financial_parts.append(str(latest_q.to_dict()))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("美股季度财务获取失败 symbol=%s: %s", symbol, e)
 
         try:
             news_list = ticker.news or []
@@ -144,10 +157,12 @@ def _fetch_us(symbol: str) -> FetchResult:
                 provider = n.get("publisher", "")
                 news_parts.append(f"- [{provider}] {title}")
             sources.append("Yahoo Finance News")
-        except Exception:
+        except Exception as e:
+            logger.warning("美股新闻获取失败 symbol=%s: %s", symbol, e)
             news_parts.append("[新闻获取失败]")
 
     except Exception as e:
+        logger.error("美股数据获取失败 symbol=%s: %s", symbol, e)
         financial_parts.append(f"[数据获取失败: {e}]")
 
     return FetchResult(
@@ -161,8 +176,20 @@ def _fetch_us(symbol: str) -> FetchResult:
 def fetch_stock_data(symbol: str, market: str = "auto") -> FetchResult:
     if market == "auto":
         market = detect_market(symbol)
+
+    started = time.perf_counter()
     if market == "a_share":
-        return _fetch_a_share(symbol)
-    if market == "us":
-        return _fetch_us(symbol)
-    raise ValueError(f"不支持的市场类型: {market}")
+        result = _fetch_a_share(symbol)
+    elif market == "us":
+        result = _fetch_us(symbol)
+    else:
+        raise UnsupportedMarketError(f"不支持的市场类型: {market}")
+
+    logger.info(
+        "数据抓取完成 symbol=%s market=%s sources=%s",
+        symbol,
+        market,
+        result.sources,
+        extra={"duration_ms": round((time.perf_counter() - started) * 1000, 1)},
+    )
+    return result

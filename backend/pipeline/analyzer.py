@@ -5,7 +5,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnableParallel
 from langchain_openai import ChatOpenAI
 
-from backend.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
+from backend.config import get_settings
 from backend.pipeline.data_fetcher import fetch_stock_data
 from backend.pipeline.prompts import (
     ARBITRATOR_PROMPT,
@@ -26,10 +26,12 @@ from backend.schemas.models import (
 
 logger = logging.getLogger(__name__)
 
+_settings = get_settings()
+
 _llm = ChatOpenAI(
-    base_url=LLM_BASE_URL,
-    api_key=LLM_API_KEY,
-    model=LLM_MODEL,
+    base_url=_settings.llm_base_url,
+    api_key=_settings.llm_api_key,
+    model=_settings.llm_model,
     temperature=0.3,
     max_tokens=2048,
 )
