@@ -54,16 +54,20 @@ debate_chain = RunnableParallel(
 arbitrator_chain = _chain(ARBITRATOR_PROMPT)
 
 
-def run_analysis(symbol: str, market: str = "auto", include_sentiment: bool = True) -> AnalysisReport:
+def run_analysis(
+    symbol: str, market: str = "auto", include_sentiment: bool = True
+) -> AnalysisReport:
     data = fetch_stock_data(symbol, market)
 
     # ---- Step 1: 基本面 + 技术面 ----
     logger.info("Step 1/4: 基本面 + 技术面分析")
-    fund_json = fundamental_chain.invoke({
-        "name": data.info.name,
-        "symbol": data.info.symbol,
-        "financial_data": data.financial_text,
-    })
+    fund_json = fundamental_chain.invoke(
+        {
+            "name": data.info.name,
+            "symbol": data.info.symbol,
+            "financial_data": data.financial_text,
+        }
+    )
     metrics = [MetricItem(**m) for m in fund_json["metrics"]]
     fund_summary = fund_json["summary"]
 
@@ -78,23 +82,27 @@ def run_analysis(symbol: str, market: str = "auto", include_sentiment: bool = Tr
     sentiment_summary = None
     if include_sentiment and data.news_text and "暂无" not in data.news_text:
         logger.info("Step 2/4: 舆情分析")
-        sent_json = sentiment_chain.invoke({
-            "name": data.info.name,
-            "symbol": data.info.symbol,
-            "news_data": data.news_text,
-        })
+        sent_json = sentiment_chain.invoke(
+            {
+                "name": data.info.name,
+                "symbol": data.info.symbol,
+                "news_data": data.news_text,
+            }
+        )
         sentiment_summary = SentimentSummary(**sent_json)
 
     # ---- Step 3: 多头 + 空头辩论（并行） ----
     logger.info("Step 3/4: 多空辩论")
     news_text = data.news_text if data.news_text else "无近期新闻数据"
-    debate = debate_chain.invoke({
-        "name": data.info.name,
-        "symbol": data.info.symbol,
-        "fundamental_summary": fund_summary,
-        "technical_data": tech_summary or "暂无技术面数据",
-        "news_data": news_text,
-    })
+    debate = debate_chain.invoke(
+        {
+            "name": data.info.name,
+            "symbol": data.info.symbol,
+            "fundamental_summary": fund_summary,
+            "technical_data": tech_summary or "暂无技术面数据",
+            "news_data": news_text,
+        }
+    )
     bull_json = debate["bull"]
     bear_json = debate["bear"]
 
@@ -113,12 +121,14 @@ def run_analysis(symbol: str, market: str = "auto", include_sentiment: bool = Tr
 
     # ---- Step 4: 风控仲裁 ----
     logger.info("Step 4/4: 风控仲裁")
-    arb_json = arbitrator_chain.invoke({
-        "fundamental_summary": fund_summary,
-        "technical_data": tech_summary or "暂无技术面数据",
-        "bull_thesis": bull_json["viewpoint"],
-        "bear_thesis": bear_json["viewpoint"],
-    })
+    arb_json = arbitrator_chain.invoke(
+        {
+            "fundamental_summary": fund_summary,
+            "technical_data": tech_summary or "暂无技术面数据",
+            "bull_thesis": bull_json["viewpoint"],
+            "bear_thesis": bear_json["viewpoint"],
+        }
+    )
     risks = [RiskItem(**r) for r in arb_json["risks"]]
 
     # ---- 组装 TechnicalIndicators ----

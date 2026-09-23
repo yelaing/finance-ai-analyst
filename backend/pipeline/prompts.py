@@ -1,8 +1,11 @@
 from langchain_core.prompts import ChatPromptTemplate
 
-FUNDAMENTAL_ANALYSIS_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", "你是一名资深金融分析师，擅长解读财务报表。"),
-    ("human", """你是一名资深金融分析师。基于以下财务数据，对 {name}（{symbol}）进行基本面分析。
+FUNDAMENTAL_ANALYSIS_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", "你是一名资深金融分析师，擅长解读财务报表。"),
+        (
+            "human",
+            """你是一名资深金融分析师。基于以下财务数据，对 {name}（{symbol}）进行基本面分析。
 
 ## 财务数据
 {financial_data}
@@ -28,12 +31,17 @@ FUNDAMENTAL_ANALYSIS_PROMPT = ChatPromptTemplate.from_messages([
   "summary": "客观总结..."
 }}
 ```
-"""),
-])
+""",
+        ),
+    ]
+)
 
-SENTIMENT_ANALYSIS_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", "你是一名金融舆情分析师，擅长从新闻中提取市场情绪信号。"),
-    ("human", """你是一名金融舆情分析师。基于以下近期新闻和公告，对 {name}（{symbol}）进行舆情分析。
+SENTIMENT_ANALYSIS_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", "你是一名金融舆情分析师，擅长从新闻中提取市场情绪信号。"),
+        (
+            "human",
+            """你是一名金融舆情分析师。基于以下近期新闻和公告，对 {name}（{symbol}）进行舆情分析。
 
 ## 近期动态
 {news_data}
@@ -53,14 +61,19 @@ SENTIMENT_ANALYSIS_PROMPT = ChatPromptTemplate.from_messages([
   "key_drivers": ["因素1", "因素2"]
 }}
 ```
-"""),
-])
+""",
+        ),
+    ]
+)
 
 # --- Debate mechanism prompts ---
 
-BULL_ANALYST_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", "你是一名多头分析师，擅长发现投资价值和积极信号。"),
-    ("human", """你是一名多头（看涨）分析师。请从乐观角度分析 {name}（{symbol}），基于以下数据找出 3-5 个看多理由。
+BULL_ANALYST_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", "你是一名多头分析师，擅长发现投资价值和积极信号。"),
+        (
+            "human",
+            """你是一名多头（看涨）分析师。请从乐观角度分析 {name}（{symbol}），基于以下数据找出 3-5 个看多理由。
 
 ## 基本面信息
 {fundamental_summary}
@@ -84,12 +97,17 @@ BULL_ANALYST_PROMPT = ChatPromptTemplate.from_messages([
   "key_evidence": ["证据1", "证据2", "证据3"],
   "confidence": 0.X
 }}
-```"""),
-])
+```""",
+        ),
+    ]
+)
 
-BEAR_ANALYST_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", "你是一名空头分析师，擅长识别风险和潜在隐患。"),
-    ("human", """你是一名空头（看跌）分析师。请从悲观角度分析 {name}（{symbol}），基于以下数据找出 3-5 个看空理由。
+BEAR_ANALYST_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", "你是一名空头分析师，擅长识别风险和潜在隐患。"),
+        (
+            "human",
+            """你是一名空头（看跌）分析师。请从悲观角度分析 {name}（{symbol}），基于以下数据找出 3-5 个看空理由。
 
 ## 基本面信息
 {fundamental_summary}
@@ -113,12 +131,17 @@ BEAR_ANALYST_PROMPT = ChatPromptTemplate.from_messages([
   "key_evidence": ["证据1", "证据2", "证据3"],
   "confidence": 0.X
 }}
-```"""),
-])
+```""",
+        ),
+    ]
+)
 
-ARBITRATOR_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", "你是一名独立风控仲裁官，公正客观地评判多空双方观点。"),
-    ("human", """你是一名独立风控仲裁官。多空双方已完成辩论，你需要给出公正的第三视角判断。
+ARBITRATOR_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", "你是一名独立风控仲裁官，公正客观地评判多空双方观点。"),
+        (
+            "human",
+            """你是一名独立风控仲裁官。多空双方已完成辩论，你需要给出公正的第三视角判断。
 
 ## 基本面总结
 {fundamental_summary}
@@ -151,11 +174,16 @@ ARBITRATOR_PROMPT = ChatPromptTemplate.from_messages([
   "conclusion": "综合来看...",
   "debate_verdict": "多空分歧的总结判断..."
 }}
-```"""),
-])
+```""",
+        ),
+    ]
+)
 
-CROSS_VALIDATION_PROMPT = ChatPromptTemplate.from_messages([
-    ("human", """你是一名风控分析师。请对以下基本面分析和舆情分析进行交叉验证，找出矛盾点和一致性。
+CROSS_VALIDATION_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "human",
+            """你是一名风控分析师。请对以下基本面分析和舆情分析进行交叉验证，找出矛盾点和一致性。
 
 ## 基本面分析
 {fundamental_summary}
@@ -183,5 +211,7 @@ CROSS_VALIDATION_PROMPT = ChatPromptTemplate.from_messages([
   "conclusion": "综合来看..."
 }}
 ```
-"""),
-])
+""",
+        ),
+    ]
+)

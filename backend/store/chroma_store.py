@@ -37,9 +37,10 @@ def _build_doc(record: dict) -> str:
 
     risks = full.get("risks") or []
     if risks:
-        lines.append("风险点：" + "；".join(
-            f"{r.get('category')}({r.get('level')}): {r.get('detail')}" for r in risks
-        ))
+        lines.append(
+            "风险点："
+            + "；".join(f"{r.get('category')}({r.get('level')}): {r.get('detail')}" for r in risks)
+        )
 
     sentiment = full.get("sentiment") or {}
     if sentiment:
@@ -63,7 +64,6 @@ def _meta(record: dict) -> dict:
 
 
 class ReportStore:
-
     def __init__(self):
         self._records: list[dict] = self._load()
         self._client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
@@ -98,7 +98,8 @@ class ReportStore:
         if existing.count():
             logger.warning(
                 "向量索引的 embedding 模型为 %s，与当前配置 %s 不一致，已清空重建",
-                stored or "（未记录）", current,
+                stored or "（未记录）",
+                current,
             )
         self._client.delete_collection(COLLECTION_NAME)
         return self._client.create_collection(
@@ -149,8 +150,9 @@ class ReportStore:
         try:
             self._index([record])
         except Exception:
-            logger.warning("报告 %s 已存入 JSON，但写入向量索引失败，下次启动会补齐",
-                           doc_id, exc_info=True)
+            logger.warning(
+                "报告 %s 已存入 JSON，但写入向量索引失败，下次启动会补齐", doc_id, exc_info=True
+            )
         return doc_id
 
     def search_semantic(self, query: str, n: int = 5, symbol: Optional[str] = None) -> list[dict]:

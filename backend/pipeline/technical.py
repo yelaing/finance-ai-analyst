@@ -37,7 +37,11 @@ def _calc_macd(close: pd.Series):
     dif = ema12 - ema26
     dea = dif.ewm(span=9, adjust=False).mean()
     bar = 2 * (dif - dea)
-    return round(float(dif.iloc[-1]), 4), round(float(dea.iloc[-1]), 4), round(float(bar.iloc[-1]), 4)
+    return (
+        round(float(dif.iloc[-1]), 4),
+        round(float(dea.iloc[-1]), 4),
+        round(float(bar.iloc[-1]), 4),
+    )
 
 
 def _calc_rsi(close: pd.Series, period: int = 14) -> Optional[float]:
@@ -116,6 +120,7 @@ def _calc_a_share(symbol: str) -> TechnicalData:
     # A 股用国内站点，不走代理，避免 Clash 干扰
     import os
     import akshare as ak
+
     old_no_proxy = os.environ.get("NO_PROXY", "")
     os.environ["NO_PROXY"] = "*"
     try:
@@ -131,14 +136,23 @@ def _calc_a_share(symbol: str) -> TechnicalData:
     if df is None or df.empty:
         raise ValueError(f"No K-line data for {symbol}")
 
-    df = df.rename(columns={"date": "date", "open": "open", "high": "high",
-                             "low": "low", "close": "close", "volume": "volume"})
+    df = df.rename(
+        columns={
+            "date": "date",
+            "open": "open",
+            "high": "high",
+            "low": "low",
+            "close": "close",
+            "volume": "volume",
+        }
+    )
     return _compute_indicators(df)
 
 
 def _calc_us(symbol: str) -> TechnicalData:
     import os
     import yfinance as yf
+
     # 确保走代理访问 Yahoo Finance
     os.environ.setdefault("HTTP_PROXY", "http://127.0.0.1:7897")
     os.environ.setdefault("HTTPS_PROXY", "http://127.0.0.1:7897")
@@ -148,8 +162,16 @@ def _calc_us(symbol: str) -> TechnicalData:
         raise ValueError(f"No K-line data for {symbol}")
 
     df = df.reset_index()
-    df = df.rename(columns={"Date": "date", "Open": "open", "High": "high",
-                             "Low": "low", "Close": "close", "Volume": "volume"})
+    df = df.rename(
+        columns={
+            "Date": "date",
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Volume": "volume",
+        }
+    )
     return _compute_indicators(df)
 
 
@@ -177,8 +199,13 @@ def _compute_indicators(df: pd.DataFrame) -> TechnicalData:
     )
 
     td.price_history = [
-        {"date": str(row["date"]), "open": row["open"], "high": row["high"],
-         "low": row["low"], "close": row["close"]}
+        {
+            "date": str(row["date"]),
+            "open": row["open"],
+            "high": row["high"],
+            "low": row["low"],
+            "close": row["close"],
+        }
         for _, row in df.tail(60).iterrows()
     ]
 

@@ -99,6 +99,7 @@ def _fetch_a_share(symbol: str) -> FetchResult:
 
 def _fetch_us(symbol: str) -> FetchResult:
     import os
+
     os.environ.setdefault("HTTP_PROXY", "http://127.0.0.1:7897")
     os.environ.setdefault("HTTPS_PROXY", "http://127.0.0.1:7897")
 

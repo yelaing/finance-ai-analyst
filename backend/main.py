@@ -27,4 +27,5 @@ def health():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("backend.main:app", host=BACKEND_HOST, port=BACKEND_PORT, reload=True)

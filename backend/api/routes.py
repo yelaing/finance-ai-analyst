@@ -32,6 +32,7 @@ def analyze(req: AnalysisRequest):
                 ts = datetime.fromisoformat(ts)
             if ts.date() == datetime.now().date():
                 from backend.schemas.models import AnalysisReport
+
                 report = AnalysisReport(**cached)
                 return AnalysisResponse(status="ok", report=report, from_cache=True, cached_at=ts)
 

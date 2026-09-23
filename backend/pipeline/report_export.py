@@ -35,10 +35,16 @@ def render_markdown(report: AnalysisReport) -> str:
         lines.append("|------|------|")
         tech = report.technical
         for label, val in [
-            ("MA5", tech.ma_5), ("MA20", tech.ma_20), ("MA60", tech.ma_60),
-            ("MACD DIF", tech.macd_dif), ("MACD DEA", tech.macd_dea),
-            ("MACD 柱", tech.macd_bar), ("RSI(14)", tech.rsi_14),
-            ("KDJ-K", tech.kdj_k), ("KDJ-D", tech.kdj_d), ("KDJ-J", tech.kdj_j),
+            ("MA5", tech.ma_5),
+            ("MA20", tech.ma_20),
+            ("MA60", tech.ma_60),
+            ("MACD DIF", tech.macd_dif),
+            ("MACD DEA", tech.macd_dea),
+            ("MACD 柱", tech.macd_bar),
+            ("RSI(14)", tech.rsi_14),
+            ("KDJ-K", tech.kdj_k),
+            ("KDJ-D", tech.kdj_d),
+            ("KDJ-J", tech.kdj_j),
         ]:
             if val is not None:
                 lines.append(f"| {label} | {val} |")
