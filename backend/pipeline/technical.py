@@ -4,7 +4,11 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from backend.config import get_settings
+
 logger = logging.getLogger(__name__)
+
+_settings = get_settings()
 
 
 @dataclass
@@ -154,9 +158,12 @@ def _calc_us(symbol: str) -> TechnicalData:
 
     import yfinance as yf
 
-    # 确保走代理访问 Yahoo Finance
-    os.environ.setdefault("HTTP_PROXY", "http://127.0.0.1:7897")
-    os.environ.setdefault("HTTPS_PROXY", "http://127.0.0.1:7897")
+    # 美股走 yfinance，国内网络通常需要代理。地址来自配置（本地写在 .env），
+    # 容器内为空则完全不设置，避免把请求指向不存在的代理
+    if _settings.http_proxy:
+        os.environ.setdefault("HTTP_PROXY", _settings.http_proxy)
+        os.environ.setdefault("HTTPS_PROXY", _settings.http_proxy)
+
     ticker = yf.Ticker(symbol)
     df = ticker.history(period="6mo")
     if df is None or df.empty:
