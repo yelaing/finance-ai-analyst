@@ -65,9 +65,11 @@ def _meta(record: dict) -> dict:
 
 
 class ReportStore:
-    def __init__(self):
+    def __init__(self, data_file: str | None = None, chroma_dir: str | None = None):
+        """data_file / chroma_dir 留空则用配置里的默认位置；测试传临时目录以免动到真实数据。"""
+        self._data_file = data_file or DATA_FILE
         self._records: list[dict] = self._load()
-        self._client = chromadb.PersistentClient(path=_settings.chroma_persist_dir)
+        self._client = chromadb.PersistentClient(path=chroma_dir or _settings.chroma_persist_dir)
         self._collection = self._open_collection()
         self._sync_index()
 
@@ -75,14 +77,14 @@ class ReportStore:
 
     def _load(self) -> list[dict]:
         try:
-            with open(DATA_FILE, encoding="utf-8") as f:
+            with open(self._data_file, encoding="utf-8") as f:
                 return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return []
 
     def _dump(self):
-        os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-        with open(DATA_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(self._data_file), exist_ok=True)
+        with open(self._data_file, "w", encoding="utf-8") as f:
             json.dump(self._records, f, ensure_ascii=False, indent=2, default=str)
 
     # ---------- ChromaDB：语义索引 ----------
