@@ -1,0 +1,47 @@
+name: CI
+
+on: [push, pull_request]
+
+concurrency:
+  # 同一分支的新提交会取消仍在跑的旧任务，避免排队堆积
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: lint / type / test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements-dev.txt
+
+      - name: ruff lint
+        run: ruff check .
+
+      - name: ruff format 检查
+        run: ruff format --check backend/ tests/
+
+      - name: mypy
+        run: mypy
+
+      # 覆盖率门槛（80%）写在 pyproject.toml 的 [tool.coverage.report]，
+      # 不在这里重复声明，保持单一来源。
+      # 测试只替换外部边界，不注入真实 API key，也不发起任何真实网络调用。
+      - name: pytest
+        run: pytest --cov=backend --cov-report=term-missing --cov-report=xml
+
+      - name: 上传覆盖率报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: warn
