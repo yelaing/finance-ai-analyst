@@ -32,3 +32,25 @@ disallow_untyped_defs = false
 module = ["backend.core.*", "backend.api.middleware", "backend.api.errors"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers"
+markers = ["integration: 跨多个模块协作的集成测试"]
+
+[tool.coverage.run]
+source = ["backend"]
+branch = true
+omit = ["*/__init__.py"]
+
+[tool.coverage.report]
+# 覆盖率门槛只写在这一处，CI 不重复声明 --cov-fail-under
+fail_under = 80
+show_missing = true
+# 仅排除运行时客观不可达的两类行，不用 pragma 刷数字
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
