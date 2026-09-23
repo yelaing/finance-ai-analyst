@@ -1,0 +1,34 @@
+# 代码质量工具配置。ruff 同时负责 lint 与 format，不引入 black ——
+# ruff format 的目标就是与 black 输出兼容，两个格式化器并存只会互相改写。
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["data", ".venv", "venv"]
+
+[tool.ruff.lint]
+# 不选 E501：折行交给 ruff format 处理，两者同时开启会互相打架
+select = ["E4", "E7", "E9", "F", "W", "I", "B", "UP", "C4", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.13"
+files = ["backend"]
+ignore_missing_imports = true
+warn_redundant_casts = true
+# pydantic 模型（含 langchain 的 ChatOpenAI）靠 alias 校验，没有插件时
+# mypy 看不到 max_tokens 这类字段名，会误报 call-arg
+plugins = ["pydantic.mypy"]
+
+# 存量代码：暂不强制逐函数标注，后续切片逐步加严
+[[tool.mypy.overrides]]
+module = ["backend.pipeline.*", "backend.store.*", "backend.schemas.*", "backend.main", "backend.api.routes"]
+disallow_untyped_defs = false
+
+# 新增的基础设施代码：强制完整类型标注
+[[tool.mypy.overrides]]
+module = ["backend.core.*", "backend.api.middleware"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true

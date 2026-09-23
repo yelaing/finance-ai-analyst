@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# 代码质量
+ruff>=0.16.0
+mypy>=2.0.0
