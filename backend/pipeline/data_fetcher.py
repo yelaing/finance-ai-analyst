@@ -1,6 +1,4 @@
-import json
 import re
-from typing import Optional
 from dataclasses import dataclass, field
 
 
@@ -38,7 +36,7 @@ def _fetch_a_share(symbol: str) -> FetchResult:
         import akshare as ak
 
         stock_df = ak.stock_individual_info_em(symbol=symbol)
-        info_dict = dict(zip(stock_df["item"], stock_df["value"]))
+        info_dict = dict(zip(stock_df["item"], stock_df["value"], strict=False))
         info.name = info_dict.get("股票简称", symbol)
 
         financial_parts.append(f"公司全称：{info_dict.get('公司名称', 'N/A')}")

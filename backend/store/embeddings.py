@@ -3,7 +3,7 @@ import time
 
 from openai import OpenAI
 
-from backend.config import LLM_BASE_URL, LLM_API_KEY, EMBEDDING_MODEL
+from backend.config import EMBEDDING_MODEL, LLM_API_KEY, LLM_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -23,21 +23,23 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
 
 def _embed_batch(batch: list[str]) -> list[list[float]]:
-    last_error = None
-    for attempt in range(_MAX_RETRIES + 1):
+    """前 _MAX_RETRIES 次失败会记录日志并退避；最后一次失败直接把异常抛给调用方。"""
+    for attempt in range(_MAX_RETRIES):
         try:
-            resp = _client.embeddings.create(model=EMBEDDING_MODEL, input=batch)
-            return [item.embedding for item in resp.data]
+            return _embed_once(batch)
         except Exception as e:
-            last_error = e
-            if attempt < _MAX_RETRIES:
-                delay = 2**attempt
-                logger.warning(
-                    "embedding 调用失败（第 %d/%d 次尝试），%ds 后重试：%s",
-                    attempt + 1,
-                    _MAX_RETRIES + 1,
-                    delay,
-                    e,
-                )
-                time.sleep(delay)
-    raise last_error
+            delay = 2**attempt
+            logger.warning(
+                "embedding 调用失败（第 %d/%d 次尝试），%ds 后重试：%s",
+                attempt + 1,
+                _MAX_RETRIES + 1,
+                delay,
+                e,
+            )
+            time.sleep(delay)
+    return _embed_once(batch)
+
+
+def _embed_once(batch: list[str]) -> list[list[float]]:
+    resp = _client.embeddings.create(model=EMBEDDING_MODEL, input=batch)
+    return [item.embedding for item in resp.data]

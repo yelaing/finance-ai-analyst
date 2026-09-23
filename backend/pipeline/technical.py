@@ -1,29 +1,28 @@
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class TechnicalData:
-    ma_5: Optional[float] = None
-    ma_20: Optional[float] = None
-    ma_60: Optional[float] = None
-    macd_dif: Optional[float] = None
-    macd_dea: Optional[float] = None
-    macd_bar: Optional[float] = None
-    rsi_14: Optional[float] = None
-    kdj_k: Optional[float] = None
-    kdj_d: Optional[float] = None
-    kdj_j: Optional[float] = None
+    ma_5: float | None = None
+    ma_20: float | None = None
+    ma_60: float | None = None
+    macd_dif: float | None = None
+    macd_dea: float | None = None
+    macd_bar: float | None = None
+    rsi_14: float | None = None
+    kdj_k: float | None = None
+    kdj_d: float | None = None
+    kdj_j: float | None = None
     price_history: list[dict] = field(default_factory=list)
 
 
-def _calc_ma(close: pd.Series, period: int) -> Optional[float]:
+def _calc_ma(close: pd.Series, period: int) -> float | None:
     if len(close) >= period:
         return round(float(close.rolling(window=period).mean().iloc[-1]), 2)
     return None
@@ -44,7 +43,7 @@ def _calc_macd(close: pd.Series):
     )
 
 
-def _calc_rsi(close: pd.Series, period: int = 14) -> Optional[float]:
+def _calc_rsi(close: pd.Series, period: int = 14) -> float | None:
     if len(close) < period + 1:
         return None
     delta = close.diff()
@@ -105,7 +104,7 @@ def _build_summary(td: TechnicalData, close: float) -> str:
     return "；".join(parts) + "。"
 
 
-def calculate_indicators(symbol: str, market: str) -> Optional[TechnicalData]:
+def calculate_indicators(symbol: str, market: str) -> TechnicalData | None:
     try:
         if market == "a_share":
             return _calc_a_share(symbol)
@@ -119,6 +118,7 @@ def calculate_indicators(symbol: str, market: str) -> Optional[TechnicalData]:
 def _calc_a_share(symbol: str) -> TechnicalData:
     # A 股用国内站点，不走代理，避免 Clash 干扰
     import os
+
     import akshare as ak
 
     old_no_proxy = os.environ.get("NO_PROXY", "")
@@ -151,6 +151,7 @@ def _calc_a_share(symbol: str) -> TechnicalData:
 
 def _calc_us(symbol: str) -> TechnicalData:
     import os
+
     import yfinance as yf
 
     # 确保走代理访问 Yahoo Finance
@@ -179,8 +180,6 @@ def _compute_indicators(df: pd.DataFrame) -> TechnicalData:
     close = df["close"].astype(float)
     high = df["high"].astype(float)
     low = df["low"].astype(float)
-
-    last_close = round(float(close.iloc[-1]), 2)
 
     dif, dea, bar = _calc_macd(close)
     k, d, j = _calc_kdj(high, low, close)

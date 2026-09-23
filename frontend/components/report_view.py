@@ -1,5 +1,5 @@
-import streamlit as st
 import pandas as pd
+import streamlit as st
 
 
 def _calc_change(price_history):
@@ -116,11 +116,11 @@ def render_technical(technical):
         )])
         fig.update_layout(
             height=360,
-            margin=dict(l=0, r=0, t=0, b=0),
+            margin={"l": 0, "r": 0, "t": 0, "b": 0},
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            xaxis=dict(color="#6b6b6b", gridcolor="#242424"),
-            yaxis=dict(color="#6b6b6b", gridcolor="#242424"),
+            xaxis={"color": "#6b6b6b", "gridcolor": "#242424"},
+            yaxis={"color": "#6b6b6b", "gridcolor": "#242424"},
             showlegend=False,
         )
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})

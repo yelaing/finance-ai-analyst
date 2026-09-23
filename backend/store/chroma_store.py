@@ -3,7 +3,6 @@ import logging
 import os
 import threading
 from datetime import datetime
-from typing import Optional
 
 import chromadb
 
@@ -74,7 +73,7 @@ class ReportStore:
 
     def _load(self) -> list[dict]:
         try:
-            with open(DATA_FILE, "r", encoding="utf-8") as f:
+            with open(DATA_FILE, encoding="utf-8") as f:
                 return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return []
@@ -155,7 +154,7 @@ class ReportStore:
             )
         return doc_id
 
-    def search_semantic(self, query: str, n: int = 5, symbol: Optional[str] = None) -> list[dict]:
+    def search_semantic(self, query: str, n: int = 5, symbol: str | None = None) -> list[dict]:
         """语义检索历史报告。symbol 非空时限定在该股票范围内检索。"""
         total = self._collection.count()
         if total == 0:
@@ -178,7 +177,7 @@ class ReportStore:
             for i in range(len(result["ids"][0]))
         ]
 
-    def get_latest(self, symbol: str) -> Optional[dict]:
+    def get_latest(self, symbol: str) -> dict | None:
         """Return the most recent full report for a symbol, or None."""
         records = [r for r in self._records if r["symbol"] == symbol]
         if not records:
@@ -186,7 +185,7 @@ class ReportStore:
         records.sort(key=lambda x: x["timestamp"], reverse=True)
         return records[0].get("full_report")
 
-    def get_history(self, symbol: Optional[str] = None, limit: int = 20) -> list[HistoryItem]:
+    def get_history(self, symbol: str | None = None, limit: int = 20) -> list[HistoryItem]:
         records = self._records
         if symbol:
             records = [r for r in records if r["symbol"] == symbol]
@@ -203,7 +202,7 @@ class ReportStore:
         ]
 
 
-_store: Optional[ReportStore] = None
+_store: ReportStore | None = None
 
 
 def get_store() -> ReportStore:

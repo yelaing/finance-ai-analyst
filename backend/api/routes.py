@@ -30,7 +30,8 @@ def analyze(req: AnalysisRequest):
             ts = cached.get("timestamp")
             if isinstance(ts, str):
                 ts = datetime.fromisoformat(ts)
-            if ts.date() == datetime.now().date():
+            # 历史记录缺 timestamp 时不当作缓存命中，直接重新分析
+            if isinstance(ts, datetime) and ts.date() == datetime.now().date():
                 from backend.schemas.models import AnalysisReport
 
                 report = AnalysisReport(**cached)
@@ -40,10 +41,10 @@ def analyze(req: AnalysisRequest):
         store.save(report)
         return AnalysisResponse(status="ok", report=report)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.exception("Analysis failed for %s", req.symbol)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/history", response_model=HistoryResponse)

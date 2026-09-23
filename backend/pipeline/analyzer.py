@@ -5,23 +5,23 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnableParallel
 from langchain_openai import ChatOpenAI
 
-from backend.config import LLM_BASE_URL, LLM_API_KEY, LLM_MODEL
+from backend.config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from backend.pipeline.data_fetcher import fetch_stock_data
-from backend.pipeline.technical import calculate_indicators, _build_summary
 from backend.pipeline.prompts import (
+    ARBITRATOR_PROMPT,
+    BEAR_ANALYST_PROMPT,
+    BULL_ANALYST_PROMPT,
     FUNDAMENTAL_ANALYSIS_PROMPT,
     SENTIMENT_ANALYSIS_PROMPT,
-    BULL_ANALYST_PROMPT,
-    BEAR_ANALYST_PROMPT,
-    ARBITRATOR_PROMPT,
 )
+from backend.pipeline.technical import _build_summary, calculate_indicators
 from backend.schemas.models import (
     AnalysisReport,
-    MetricItem,
-    SentimentSummary,
-    RiskItem,
-    TechnicalIndicators,
     DebateThesis,
+    MetricItem,
+    RiskItem,
+    SentimentSummary,
+    TechnicalIndicators,
 )
 
 logger = logging.getLogger(__name__)

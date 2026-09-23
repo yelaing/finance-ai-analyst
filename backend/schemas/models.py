@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
-from typing import Optional
 from datetime import datetime
+
+from pydantic import BaseModel, Field
 
 
 class AnalysisRequest(BaseModel):
@@ -12,7 +12,7 @@ class AnalysisRequest(BaseModel):
 class MetricItem(BaseModel):
     label: str
     value: str
-    yoy_change: Optional[str] = None
+    yoy_change: str | None = None
     assessment: str  # "positive", "neutral", "negative"
 
 
@@ -29,16 +29,16 @@ class RiskItem(BaseModel):
 
 
 class TechnicalIndicators(BaseModel):
-    ma_5: Optional[float] = None
-    ma_20: Optional[float] = None
-    ma_60: Optional[float] = None
-    macd_dif: Optional[float] = None
-    macd_dea: Optional[float] = None
-    macd_bar: Optional[float] = None
-    rsi_14: Optional[float] = None
-    kdj_k: Optional[float] = None
-    kdj_d: Optional[float] = None
-    kdj_j: Optional[float] = None
+    ma_5: float | None = None
+    ma_20: float | None = None
+    ma_60: float | None = None
+    macd_dif: float | None = None
+    macd_dea: float | None = None
+    macd_bar: float | None = None
+    rsi_14: float | None = None
+    kdj_k: float | None = None
+    kdj_d: float | None = None
+    kdj_j: float | None = None
     trend_summary: str = ""
     price_history: list[dict] = []
 
@@ -56,22 +56,22 @@ class AnalysisReport(BaseModel):
     timestamp: datetime
     fundamental_metrics: list[MetricItem]
     fundamental_summary: str
-    sentiment: Optional[SentimentSummary] = None
+    sentiment: SentimentSummary | None = None
     risks: list[RiskItem]
     conclusion: str
     sources: list[str] = []
-    technical: Optional[TechnicalIndicators] = None
-    bull_thesis: Optional[DebateThesis] = None
-    bear_thesis: Optional[DebateThesis] = None
-    debate_verdict: Optional[str] = None
+    technical: TechnicalIndicators | None = None
+    bull_thesis: DebateThesis | None = None
+    bear_thesis: DebateThesis | None = None
+    debate_verdict: str | None = None
 
 
 class AnalysisResponse(BaseModel):
     status: str
-    report: Optional[AnalysisReport] = None
-    error: Optional[str] = None
+    report: AnalysisReport | None = None
+    error: str | None = None
     from_cache: bool = False
-    cached_at: Optional[datetime] = None
+    cached_at: datetime | None = None
 
 
 class HistoryItem(BaseModel):

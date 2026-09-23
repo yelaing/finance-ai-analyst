@@ -1,10 +1,11 @@
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import streamlit as st
 import requests
+import streamlit as st
+
 from frontend.style import inject
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000/api/v1")
@@ -45,8 +46,8 @@ if st.sidebar.button("开始分析", type="primary", use_container_width=True):
                 if resp.status_code == 200:
                     data = resp.json()
                     if data.get("report"):
-                        from frontend.components.report_view import render_report
                         from backend.schemas.models import AnalysisReport
+                        from frontend.components.report_view import render_report
 
                         report = AnalysisReport(**data["report"])
                         render_report(report)

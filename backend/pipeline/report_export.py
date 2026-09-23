@@ -4,13 +4,13 @@ from backend.schemas.models import AnalysisReport
 def render_markdown(report: AnalysisReport) -> str:
     lines = [
         f"# {report.name}（{report.symbol}）分析报告",
-        f"",
+        "",
         f"**分析时间**: {report.timestamp.strftime('%Y-%m-%d %H:%M')}",
-        f"",
-        f"---",
-        f"",
-        f"## 一、基本面分析",
-        f"",
+        "",
+        "---",
+        "",
+        "## 一、基本面分析",
+        "",
     ]
 
     # Metrics table
@@ -67,7 +67,7 @@ def render_markdown(report: AnalysisReport) -> str:
     lines.append("")
 
     # Debate
-    if report.bull_thesis:
+    if report.bull_thesis and report.bear_thesis:
         lines.append("---")
         lines.append("")
         lines.append("## 四、多空辩论")
