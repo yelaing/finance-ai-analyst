@@ -3,7 +3,7 @@
 import functools
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,6 +31,24 @@ class Settings(BaseSettings):
 
     # 美股数据源走 yfinance，国内网络通常需要代理；容器内应留空
     http_proxy: str | None = None
+
+    # 缓存（进程内 TTL + LRU）。数据源短 TTL 保新鲜度，LLM/embedding 长 TTL 做确定性记忆化
+    cache_enabled: bool = True
+    cache_maxsize: int = 512
+    cache_ttl_seconds: float = 1800.0
+    cache_llm_ttl_seconds: float = 86400.0
+
+    # LLM 价格（每 1000 token）。留空则只统计 token，不换算金额
+    llm_price_input_per_1k: float | None = None
+    llm_price_output_per_1k: float | None = None
+
+    @field_validator("llm_price_input_per_1k", "llm_price_output_per_1k", mode="before")
+    @classmethod
+    def _blank_price_means_unset(cls, value: object) -> object:
+        """.env 里写成 `LLM_PRICE_INPUT_PER_1K=` 这种空值应当视为未配置，而不是启动报错。"""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def is_prod(self) -> bool:
