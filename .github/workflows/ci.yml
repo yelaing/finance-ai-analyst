@@ -10,7 +10,9 @@ concurrency:
 jobs:
   quality:
     name: lint / type / test
-    runs-on: ubuntu-latest
+    # 钉住版本而非 ubuntu-latest：GitHub 将于 2026-10-19 把 latest 切到 Ubuntu 26，
+    # 依赖安装行为可能随之漂移。升级镜像应该是主动决定，不是某天被动发生。
+    runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v4
