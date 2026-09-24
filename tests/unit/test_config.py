@@ -9,7 +9,11 @@ def make(**env) -> Settings:
     return Settings(_env_file=None, **env)
 
 
-def test_defaults():
+def test_defaults(monkeypatch):
+    # 显式清掉代理变量：否则断言会依赖跑测试的机器/CI 是否设了它们
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+
     s = make()
     assert s.env == "dev"
     assert s.is_prod is False
@@ -17,6 +21,8 @@ def test_defaults():
     assert s.backend_port == 8000
     assert s.cors_origins == ["*"]
     assert s.http_proxy is None
+    assert s.no_proxy is None
+    assert s.llm_timeout == 30.0
 
 
 def test_prod_derives_json_log_format():

@@ -1,5 +1,3 @@
-import math
-
 import pandas as pd
 import pytest
 
@@ -74,14 +72,18 @@ def test_calc_rsi_stays_in_range_for_mixed_series():
     assert rsi is not None and 0.0 <= rsi <= 100.0
 
 
-def test_calc_rsi_on_monotonic_rise_is_nan_known_defect():
-    """刻画现状：全程无下跌时 RSI 应为 100，实际返回 NaN。
+def test_calc_rsi_on_monotonic_rise_is_100():
+    """全程无下跌时按定义 RSI 就是 100。
 
-    成因：`avg_loss.replace(0, np.nan)` 让 rs 变 NaN，进而污染 RSI。
-    连涨 15 个交易日以上的股票会触达，届时报告里会写成「RSI(14)=nan，处于中性区间」。
-    这是既有缺陷，不在「测试与 CI」切片范围内 —— 修好它时必须同步更新本断言。
+    原实现用 `avg_loss.replace(0, np.nan)` 让这里算出 NaN —— 连涨 15 个交易日
+    以上的股票会踩到，报告里会写成「RSI(14)=nan，处于中性区间」。已修复。
     """
-    assert math.isnan(t._calc_rsi(RISING))
+    assert t._calc_rsi(RISING) == 100.0
+
+
+def test_calc_rsi_on_flat_series_is_neutral():
+    """全程无波动时涨跌幅两端都是 0，取中性的 50（原先也是 NaN）。"""
+    assert t._calc_rsi(FLAT) == 50.0
 
 
 # ---------- KDJ ----------

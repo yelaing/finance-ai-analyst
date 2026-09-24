@@ -60,24 +60,28 @@ def test_calc_a_share_builds_prefixed_symbol(monkeypatch, proxyless, symbol, exp
     assert module.calls[0]["adjust"] == "qfq"
 
 
-def test_calc_a_share_bypasses_proxy_during_fetch(monkeypatch, proxyless):
-    """A 股用国内站点，抓取时必须设 NO_PROXY=*，否则会被 Clash 拦成 ProxyError。"""
+PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
+
+def env_snapshot() -> dict[str, str | None]:
+    return {name: os.environ.get(name) for name in PROXY_VARS}
+
+
+def test_calc_a_share_does_not_mutate_process_env(monkeypatch, proxyless):
+    """抓取过程不得改动全局环境变量。
+
+    历史上这里是临时把 NO_PROXY 改成 "*"，但那在多线程下是竞态：并发的另一个请求
+    （比如 yfinance）会读到被改过的值、绕过代理然后失败。代理环境改由
+    backend.core.net 在服务启动时一次性应用。
+    """
     module = fake_akshare(kline())
     monkeypatch.setitem(sys.modules, "akshare", module)
+    before = env_snapshot()
+
     t._calc_a_share("600519")
 
-    assert module.calls[0]["no_proxy"] == "*"
-    assert "NO_PROXY" not in os.environ  # 抓完必须还原
-
-
-def test_calc_a_share_restores_previous_no_proxy(monkeypatch, proxyless):
-    monkeypatch.setenv("NO_PROXY", "example.com")
-    module = fake_akshare(kline())
-    monkeypatch.setitem(sys.modules, "akshare", module)
-    t._calc_a_share("600519")
-
-    assert module.calls[0]["no_proxy"] == "*"
-    assert os.environ["NO_PROXY"] == "example.com"
+    assert env_snapshot() == before
+    assert module.calls[0]["no_proxy"] is None  # 不再注入 NO_PROXY
 
 
 def test_calc_a_share_returns_none_when_no_data(monkeypatch, proxyless):
@@ -130,7 +134,6 @@ def yahoo_frame(n: int = 70) -> pd.DataFrame:
 
 def test_calc_us_renames_yahoo_columns(monkeypatch, proxyless):
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(yahoo_frame(70)))
-    monkeypatch.setattr(t, "_settings", types.SimpleNamespace(http_proxy=None))
     result = t._calc_us("AAPL")
 
     assert result.ma_5 is not None and result.ma_20 is not None
@@ -138,33 +141,22 @@ def test_calc_us_renames_yahoo_columns(monkeypatch, proxyless):
     assert "close" in result.price_history[0]
 
 
-def test_calc_us_sets_proxy_from_config(monkeypatch, proxyless):
+def test_calc_us_does_not_mutate_process_env(monkeypatch, proxyless):
+    """同 _calc_a_share：运行期不改全局环境变量，代理由启动时统一应用。"""
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(yahoo_frame(70)))
-    monkeypatch.setattr(t, "_settings", types.SimpleNamespace(http_proxy="http://127.0.0.1:7897"))
+    before = env_snapshot()
+
     t._calc_us("AAPL")
 
-    assert os.environ["HTTP_PROXY"] == "http://127.0.0.1:7897"
-    assert os.environ["HTTPS_PROXY"] == "http://127.0.0.1:7897"
-
-
-def test_calc_us_does_not_set_proxy_when_unconfigured(monkeypatch, proxyless):
-    """容器里没有代理，硬编码地址会把请求打到不存在的端口。"""
-    monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(yahoo_frame(70)))
-    monkeypatch.setattr(t, "_settings", types.SimpleNamespace(http_proxy=None))
-    t._calc_us("AAPL")
-
-    assert "HTTP_PROXY" not in os.environ
-    assert "HTTPS_PROXY" not in os.environ
+    assert env_snapshot() == before
 
 
 def test_calc_us_raises_when_no_data(monkeypatch, proxyless):
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(pd.DataFrame()))
-    monkeypatch.setattr(t, "_settings", types.SimpleNamespace(http_proxy=None))
     with pytest.raises(ValueError, match="No K-line data"):
         t._calc_us("AAPL")
 
 
 def test_calculate_indicators_returns_none_when_us_fetch_fails(monkeypatch, proxyless):
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(ConnectionError("Yahoo 挂了")))
-    monkeypatch.setattr(t, "_settings", types.SimpleNamespace(http_proxy=None))
     assert t.calculate_indicators("AAPL", "us") is None

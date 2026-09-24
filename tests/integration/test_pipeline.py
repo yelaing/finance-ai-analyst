@@ -374,6 +374,79 @@ def test_usage_summary_explains_zero_tokens_on_cache_hit(pipeline, caplog):
     assert set(record.cached_stages.split(",")) == set(analyzer._STAGES)
 
 
+# ---------- 超时/失败降级 ----------
+
+
+def test_llm_client_has_request_timeout_configured():
+    """「超时降级」的前提是超时真的配上了。"""
+    from backend.config import get_settings
+
+    assert analyzer._llm.request_timeout == get_settings().llm_timeout
+
+
+def test_sentiment_failure_degrades_instead_of_failing(pipeline, monkeypatch, caplog):
+    calls, _ = pipeline
+    monkeypatch.setattr(
+        analyzer, "sentiment_chain", FakeChain("sentiment", RuntimeError("超时"), calls)
+    )
+
+    with caplog.at_level(logging.INFO):
+        report = analyzer.run_analysis("600519")
+
+    assert report.sentiment is None
+    assert "Step 3/4" in caplog.text  # 后续阶段照常执行
+    assert report.conclusion == "综合结论"
+    assert report.risks
+
+
+def test_debate_failure_degrades_instead_of_failing(pipeline, monkeypatch):
+    calls, _ = pipeline
+    monkeypatch.setattr(analyzer, "debate_chain", FakeChain("debate", RuntimeError("超时"), calls))
+
+    report = analyzer.run_analysis("600519")
+
+    assert report.bull_thesis is None
+    assert report.bear_thesis is None
+    assert report.conclusion == "综合结论"  # 仲裁仍然跑完
+    assert report.risks
+
+
+def test_degraded_stages_are_logged(pipeline, monkeypatch, caplog):
+    calls, _ = pipeline
+    monkeypatch.setattr(analyzer, "debate_chain", FakeChain("debate", RuntimeError("超时"), calls))
+
+    with caplog.at_level(logging.WARNING):
+        analyzer.run_analysis("600519")
+
+    assert "本次分析有阶段被降级" in caplog.text
+    record = next(r for r in caplog.records if hasattr(r, "degraded_stages"))
+    assert record.degraded_stages == "debate"
+
+
+def test_arbitrator_gets_placeholder_when_debate_missing(pipeline, monkeypatch):
+    calls, _ = pipeline
+    monkeypatch.setattr(analyzer, "debate_chain", FakeChain("debate", RuntimeError("超时"), calls))
+
+    analyzer.run_analysis("600519")
+
+    payload = next(p for name, p in calls if name == "arbitrator")
+    assert "未完成" in payload["bull_thesis"]
+    assert "未完成" in payload["bear_thesis"]
+
+
+@pytest.mark.parametrize("stage", ["fundamental", "arbitrator"])
+def test_required_stage_failure_still_fails_the_request(pipeline, monkeypatch, stage):
+    """基本面与风控仲裁的字段是必需的 —— 缺了就产不出合法报告。
+
+    这种情况必须让异常上抛成 502，不能降级后给出一个"看似完整、实则缺结论"的报告。
+    """
+    calls, _ = pipeline
+    monkeypatch.setattr(analyzer, f"{stage}_chain", FakeChain(stage, RuntimeError("超时"), calls))
+
+    with pytest.raises(RuntimeError, match="超时"):
+        analyzer.run_analysis("600519")
+
+
 def test_usage_summary_is_logged_even_when_pipeline_fails(pipeline, monkeypatch, caplog):
     calls, _ = pipeline
     monkeypatch.setattr(

@@ -31,6 +31,55 @@ ERROR_PATHS = [
 # ---------- 基础探针 ----------
 
 
+def test_lifespan_applies_network_env(monkeypatch):
+    """网络环境变量在**服务启动时**应用，而不是 import 时。
+
+    放 import 时会给任何导入 backend.main 的一方留下全局副作用 ——
+    实测那会污染测试里「默认值为 None」的断言（收集阶段就改了进程环境）。
+    """
+    import os
+
+    from fastapi.testclient import TestClient
+
+    import backend.main as main_module
+    from backend.config import Settings
+
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        Settings(_env_file=None, http_proxy="http://proxy.example:8080", no_proxy="example.com"),
+    )
+
+    with TestClient(main_module.app):
+        assert os.environ["HTTP_PROXY"] == "http://proxy.example:8080"
+        assert os.environ["NO_PROXY"] == "example.com"
+
+
+def test_network_env_is_not_applied_at_import_time():
+    """结构断言：apply_network_env 不得出现在模块顶层。
+
+    放顶层就是 import 副作用 —— 测试收集阶段就会执行，污染后续断言；也让任何
+    导入 backend.main 的一方被动改掉自己的进程环境。必须留在 lifespan 里。
+    用 AST 而不是行号，避免断言随排版失效。
+    """
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    tree = ast.parse((root / "backend" / "main.py").read_text(encoding="utf-8"))
+
+    top_level_calls = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Call)
+        and getattr(node.value.func, "id", "") == "apply_network_env"
+    ]
+    assert top_level_calls == [], "apply_network_env 被放在模块顶层了，应移入 lifespan"
+
+
 def test_health(client):
     resp = client.get("/health")
     assert resp.status_code == 200

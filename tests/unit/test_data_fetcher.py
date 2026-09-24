@@ -184,7 +184,6 @@ def test_fetch_us_happy_path(monkeypatch, proxyless):
         financials=pd.DataFrame({"2026Q1": [1.0]}),
     )
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(ticker))
-    monkeypatch.setattr(df, "_settings", types.SimpleNamespace(http_proxy=None))
     result = df._fetch_us("AAPL")
 
     assert result.info.name == "Apple Inc."
@@ -196,13 +195,11 @@ def test_fetch_us_happy_path(monkeypatch, proxyless):
 
 def test_fetch_us_falls_back_when_news_is_empty(monkeypatch, proxyless):
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(FakeTicker(info={}, news=[])))
-    monkeypatch.setattr(df, "_settings", types.SimpleNamespace(http_proxy=None))
     assert df._fetch_us("AAPL").news_text == "暂无近期新闻"
 
 
 def test_fetch_us_degrades_when_source_unreachable(monkeypatch, proxyless, caplog):
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(FakeTicker(raise_on_info=True)))
-    monkeypatch.setattr(df, "_settings", types.SimpleNamespace(http_proxy=None))
     with caplog.at_level(logging.ERROR):
         result = df._fetch_us("AAPL")
 
@@ -211,25 +208,21 @@ def test_fetch_us_degrades_when_source_unreachable(monkeypatch, proxyless, caplo
     assert "美股数据获取失败" in caplog.text
 
 
-def test_fetch_us_sets_proxy_from_config(monkeypatch, proxyless):
-    monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(FakeTicker(info={})))
-    monkeypatch.setattr(df, "_settings", types.SimpleNamespace(http_proxy="http://127.0.0.1:7897"))
-    df._fetch_us("AAPL")
+def test_fetch_us_does_not_mutate_process_env(monkeypatch, proxyless):
+    """抓取过程不得改动全局环境变量。
 
+    代理环境原来是在这里 setdefault 的，但在线程池里跑并发请求时那是竞态
+    （另一个请求会读到被改过的值）。现在改由 backend.core.net 在启动时一次性应用。
+    """
     import os
 
-    assert os.environ["HTTP_PROXY"] == "http://127.0.0.1:7897"
-    assert os.environ["HTTPS_PROXY"] == "http://127.0.0.1:7897"
-
-
-def test_fetch_us_does_not_set_proxy_when_unconfigured(monkeypatch, proxyless):
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(FakeTicker(info={})))
-    monkeypatch.setattr(df, "_settings", types.SimpleNamespace(http_proxy=None))
+    names = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+    before = {name: os.environ.get(name) for name in names}
+
     df._fetch_us("AAPL")
 
-    import os
-
-    assert "HTTP_PROXY" not in os.environ
+    assert {name: os.environ.get(name) for name in names} == before
 
 
 HEALTHY_SOURCES = ["东方财富个股信息", "同花顺财务摘要", "东方财富新闻"]
@@ -391,7 +384,6 @@ def test_fetch_us_logs_quarterly_financial_failure(monkeypatch, proxyless, caplo
             return []
 
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(Exploding()))
-    monkeypatch.setattr(df, "_settings", types.SimpleNamespace(http_proxy=None))
     with caplog.at_level(logging.WARNING):
         df._fetch_us("AAPL")
 
@@ -414,7 +406,6 @@ def test_fetch_us_logs_news_failure_and_falls_back(monkeypatch, proxyless, caplo
             raise KeyError("news 字段结构变了")
 
     monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance(ExplodingNews()))
-    monkeypatch.setattr(df, "_settings", types.SimpleNamespace(http_proxy=None))
     with caplog.at_level(logging.WARNING):
         result = df._fetch_us("AAPL")
 
