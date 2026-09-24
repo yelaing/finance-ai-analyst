@@ -19,13 +19,26 @@ REQUEST_ID_HEADER = "X-Request-ID"
 
 
 def _route_template(request: Request) -> str:
-    """指标标签用**路由模板**而不是原始 URL。
+    """指标标签用**有界**的路由模板，而不是原始 URL。
 
-    `/api/v1/export/{symbol}` 用原始 URL 的话，每个股票代码都会长出一条独立时间
-    序列 —— 几百个股票就能把 Prometheus 拖垮。未匹配到路由时统一归到 unmatched。
+    `/api/v1/export/{symbol}` 若用原始 URL，每个股票代码都会长出一条独立时间序列 ——
+    几百个股票就能把 Prometheus 拖垮。未匹配到路由的请求统一归到 unmatched，
+    否则可以用随机 URL 撑爆基数。
+
+    不用 `route.path`：在新版 starlette 的嵌套 router 下它**不含 include_router 的
+    前缀**（实测 route.path 是 `/export/{symbol}`，而真实路径是
+    `/api/v1/export/600519`）。直接用它会把不同 API 版本下的同名端点合并成一条序列。
+    改为拿原始路径把参数值替换回占位符：既保留完整前缀，又保持有界。
+    替换时带上前导 `/`，避免参数值恰好是别的片段的一部分时误替换。
     """
-    route = request.scope.get("route")
-    return getattr(route, "path", None) or "unmatched"
+    if request.scope.get("route") is None:
+        return "unmatched"
+
+    path = request.scope.get("path") or "unmatched"
+    for name, value in (request.scope.get("path_params") or {}).items():
+        if value:
+            path = path.replace(f"/{value}", f"/{{{name}}}")
+    return path
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):

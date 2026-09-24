@@ -87,6 +87,9 @@ def test_path_label_uses_route_template_not_raw_url(client, store):
     # 原始 URL 形态绝不能出现
     assert 'path="/api/v1/export/600519"' not in text
     assert 'path="/api/v1/export/AAPL"' not in text
+    # 也绝不能丢掉 include_router 的前缀：新版 starlette 的 route.path 就是
+    # `/export/{symbol}`，用它会把不同 API 版本下的同名端点合并成一条序列
+    assert sample(text, "http_requests_total", path="/export/{symbol}", status="200") is None
 
 
 def test_unmatched_requests_are_bucketed_not_labelled_by_url(client):
