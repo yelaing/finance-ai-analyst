@@ -47,6 +47,24 @@ def fake_embed(texts: list[str]) -> list[list[float]]:
     return vectors
 
 
+@pytest.fixture(autouse=True)
+def isolated_caches():
+    """缓存是模块级单例，跨用例不清会互相污染。
+
+    最典型的后果：两个用例用同样的 prompt 跑流水线，第二个直接命中缓存、
+    链根本没被调用，于是「断言链入参」的用例会莫名其妙地失败。
+    """
+    from backend.config import get_settings
+    from backend.core.cache import get_cache
+
+    get_settings.cache_clear()
+    get_cache.cache_clear()
+    get_cache()  # 立刻按当前配置重建，保证各模块拿到的是同一个新实例
+    yield
+    get_cache.cache_clear()
+    get_settings.cache_clear()
+
+
 @pytest.fixture
 def stub_embed(monkeypatch):
     """替换向量化调用，返回假向量。

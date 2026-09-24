@@ -232,24 +232,121 @@ def test_fetch_us_does_not_set_proxy_when_unconfigured(monkeypatch, proxyless):
     assert "HTTP_PROXY" not in os.environ
 
 
-def test_fetch_stock_data_logs_duration(monkeypatch, caplog):
-    monkeypatch.setattr(
-        df,
-        "_fetch_a_share",
-        lambda symbol: df.FetchResult(
-            info=df.StockInfo("600519", "贵州茅台", "a_share"),
-            financial_text="f",
-            news_text="n",
-            sources=["同花顺财务摘要"],
-        ),
+HEALTHY_SOURCES = ["东方财富个股信息", "同花顺财务摘要", "东方财富新闻"]
+
+
+def _result(*, symbol="600519", sources=None) -> df.FetchResult:
+    return df.FetchResult(
+        info=df.StockInfo(symbol, "贵州茅台", "a_share"),
+        financial_text="财务数据",
+        news_text="近期新闻",
+        sources=HEALTHY_SOURCES if sources is None else sources,
     )
+
+
+def test_fetch_stock_data_logs_structured_fields(monkeypatch, caplog):
+    monkeypatch.setattr(df, "_fetch_a_share", lambda symbol: _result())
     with caplog.at_level(logging.INFO):
         df.fetch_stock_data("600519", "a_share")
 
     record = next(r for r in caplog.records if "数据抓取完成" in r.getMessage())
+    # symbol / market / sources 现在走 extra 成为结构化字段，不再拼进消息文本
+    assert record.symbol == "600519"
+    assert record.market == "a_share"
+    assert record.sources == HEALTHY_SOURCES
     assert record.duration_ms >= 0
-    assert "贵州茅台" not in record.getMessage()  # 日志里只放 symbol，不带中文名
-    assert "600519" in record.getMessage()
+    assert "贵州茅台" not in record.getMessage()
+
+
+# ---------- 数据源缓存 ----------
+
+
+def test_healthy_fetch_is_cached_and_second_call_skips_network(monkeypatch):
+    calls = []
+
+    def counting(symbol):
+        calls.append(symbol)
+        return _result()
+
+    monkeypatch.setattr(df, "_fetch_a_share", counting)
+    first = df.fetch_stock_data("600519", "a_share")
+    second = df.fetch_stock_data("600519", "a_share")
+
+    assert calls == ["600519"]  # 第二次没再抓
+    assert second is first
+
+
+def test_degraded_fetch_is_not_cached(monkeypatch, caplog):
+    """缓存降级结果等于把一次偶发故障固化成半小时的持续降级。"""
+    calls = []
+
+    def partial(symbol):
+        calls.append(symbol)
+        return _result(sources=["同花顺财务摘要"])  # 三个源只成功一个
+
+    monkeypatch.setattr(df, "_fetch_a_share", partial)
+    with caplog.at_level(logging.WARNING):
+        df.fetch_stock_data("600519", "a_share")
+        df.fetch_stock_data("600519", "a_share")
+
+    assert calls == ["600519", "600519"]  # 每次都重新抓
+    assert "结果不写入缓存" in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("sources", "healthy"),
+    [
+        (["东方财富个股信息", "同花顺财务摘要"], False),  # 缺新闻
+        (["同花顺财务摘要", "东方财富新闻"], False),  # 缺个股信息
+        ([], False),  # 全失败
+        (["东方财富个股信息", "同花顺财务摘要", "东方财富新闻", "额外源"], True),
+    ],
+)
+def test_health_requires_all_expected_sources(sources, healthy):
+    """健康度用 sources 这个结构化信号判断，不嗅探文本标记 ——
+    财务摘要失败时文本里根本不留标记。"""
+    assert df._is_healthy("a_share", _result(sources=sources)) is healthy
+
+
+def test_cache_hit_is_logged(monkeypatch, caplog):
+    monkeypatch.setattr(df, "_fetch_a_share", lambda symbol: _result())
+    df.fetch_stock_data("600519", "a_share")
+    with caplog.at_level(logging.INFO):
+        df.fetch_stock_data("600519", "a_share")
+
+    record = next(r for r in caplog.records if "命中缓存" in r.getMessage())
+    assert record.cache_hit is True
+    assert record.symbol == "600519"
+
+
+def test_cache_is_keyed_per_symbol_and_market(monkeypatch):
+    from backend.core.cache import FETCH, cache_key, get_cache
+
+    monkeypatch.setattr(df, "_fetch_a_share", lambda symbol: _result(symbol=symbol))
+    df.fetch_stock_data("600519", "a_share")
+    assert get_cache().get(FETCH, cache_key("a_share", "600519")) is not None
+    assert get_cache().get(FETCH, cache_key("a_share", "000001")) is None
+    assert get_cache().get(FETCH, cache_key("us", "600519")) is None
+
+
+def test_cache_disabled_always_fetches(monkeypatch):
+    monkeypatch.setenv("CACHE_ENABLED", "false")
+    from backend.config import get_settings
+    from backend.core.cache import get_cache
+
+    get_settings.cache_clear()
+    get_cache.cache_clear()
+
+    calls = []
+
+    def counting(symbol):
+        calls.append(symbol)
+        return _result()
+
+    monkeypatch.setattr(df, "_fetch_a_share", counting)
+    df.fetch_stock_data("600519", "a_share")
+    df.fetch_stock_data("600519", "a_share")
+    assert calls == ["600519", "600519"]
 
 
 # ---------- 边界：空数据与脏值 ----------

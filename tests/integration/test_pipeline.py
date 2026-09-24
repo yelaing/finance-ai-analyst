@@ -5,6 +5,7 @@ run_analysis 的编排逻辑、字段装配、TechnicalIndicators 组装全部�
 """
 
 import logging
+import types
 from datetime import datetime
 
 import pytest
@@ -20,13 +21,15 @@ pytestmark = pytest.mark.integration
 class FakeChain:
     """记录调用顺序与入参；可配置返回结果或抛异常。"""
 
-    def __init__(self, name, result, calls):
+    def __init__(self, name, result, calls, configs=None):
         self.name = name
         self.result = result
         self.calls = calls
+        self.configs = configs if configs is not None else []
 
-    def invoke(self, payload):
+    def invoke(self, payload, **kwargs):
         self.calls.append((self.name, payload))
+        self.configs.append(kwargs.get("config"))
         if isinstance(self.result, Exception):
             raise self.result
         return self.result
@@ -254,7 +257,7 @@ def test_sentiment_without_news_still_reports_news_text_for_debate(pipeline):
 
 
 def test_run_analysis_is_repeatable(pipeline):
-    """同一进程内多次分析不应互相污染（链与缓存都是无状态的）。"""
+    """同一进程内多次分析不应互相污染：每次都产出独立对象。"""
     first = analyzer.run_analysis("600519")
     second = analyzer.run_analysis("600519")
 
@@ -263,6 +266,124 @@ def test_run_analysis_is_repeatable(pipeline):
     assert first.timestamp.tzinfo is None  # 存的是本地朴素时间
     assert second.timestamp >= first.timestamp
     assert first.bull_thesis is not second.bull_thesis
+
+
+# ---------- 阶段缓存 ----------
+
+
+class CountingChain:
+    def __init__(self, result) -> None:
+        self.result = result
+        self.invocations = 0
+        self.configs: list[dict] = []
+
+    def invoke(self, payload, **kwargs):
+        self.invocations += 1
+        self.configs.append(kwargs.get("config") or {})
+        return self.result
+
+
+def make_callbacks():
+    from backend.core.tokens import TokenUsageCallback
+
+    return {stage: TokenUsageCallback(stage) for stage in analyzer._STAGES}
+
+
+def test_run_stage_caches_result():
+    chain = CountingChain({"v": 1})
+    payload = {"prompt": "这个 payload 只在本用例出现"}
+    callbacks = make_callbacks()
+
+    first = analyzer._run_stage("fundamental", chain, payload, callbacks)
+    second = analyzer._run_stage("fundamental", chain, payload, callbacks)
+
+    assert first == second == {"v": 1}
+    assert chain.invocations == 1
+
+
+def test_run_stage_cache_key_depends_on_model(monkeypatch):
+    chain = CountingChain({"v": 1})
+    payload = {"prompt": "换模型必须让旧缓存失效"}
+    callbacks = make_callbacks()
+
+    analyzer._run_stage("fundamental", chain, payload, callbacks)
+    monkeypatch.setattr(analyzer, "_settings", types.SimpleNamespace(llm_model="另一个模型"))
+    analyzer._run_stage("fundamental", chain, payload, callbacks)
+
+    assert chain.invocations == 2
+
+
+def test_run_stage_cache_key_depends_on_payload():
+    chain = CountingChain({"v": 1})
+    callbacks = make_callbacks()
+
+    analyzer._run_stage("debate", chain, {"p": "a"}, callbacks)
+    analyzer._run_stage("debate", chain, {"p": "b"}, callbacks)
+
+    assert chain.invocations == 2
+
+
+def test_run_stage_passes_stage_specific_callback():
+    from backend.core.tokens import TokenUsageCallback
+
+    chain = CountingChain({"v": 1})
+    analyzer._run_stage("sentiment", chain, {"p": "回调接线"}, make_callbacks())
+
+    callback = chain.configs[0]["callbacks"][0]
+    assert isinstance(callback, TokenUsageCallback)
+    assert callback.stage == "sentiment"
+
+
+def test_run_stage_marks_cache_hit_in_usage_accumulator():
+    from backend.core.tokens import TokenUsageAccumulator, usage_var
+
+    accumulator = TokenUsageAccumulator()
+    token = usage_var.set(accumulator)
+    try:
+        chain = CountingChain({"v": 1})
+        payload = {"p": "命中要记进汇总"}
+        analyzer._run_stage("arbitrator", chain, payload, make_callbacks())
+        analyzer._run_stage("arbitrator", chain, payload, make_callbacks())
+    finally:
+        usage_var.reset(token)
+
+    assert accumulator.cached_stages == ["arbitrator"]
+
+
+def test_second_identical_run_makes_no_llm_calls(pipeline):
+    """缓存的核心收益：同样输入第二次不再花 LLM 的钱。"""
+    calls, _ = pipeline
+    analyzer.run_analysis("600519")
+    assert len(calls) == 4  # fundamental / sentiment / debate / arbitrator
+
+    calls.clear()
+    analyzer.run_analysis("600519")
+    assert calls == []
+
+
+def test_usage_summary_explains_zero_tokens_on_cache_hit(pipeline, caplog):
+    """token 为 0 时必须能看出是因为命中缓存，而不是统计坏了。"""
+    calls, _ = pipeline
+    analyzer.run_analysis("600519")
+
+    with caplog.at_level(logging.INFO):
+        analyzer.run_analysis("600519")
+
+    record = [r for r in caplog.records if "分析用量汇总" in r.getMessage()][-1]
+    assert record.llm_calls == 0
+    assert set(record.cached_stages.split(",")) == set(analyzer._STAGES)
+
+
+def test_usage_summary_is_logged_even_when_pipeline_fails(pipeline, monkeypatch, caplog):
+    calls, _ = pipeline
+    monkeypatch.setattr(
+        analyzer, "arbitrator_chain", FakeChain("arbitrator", RuntimeError("仲裁失败"), calls)
+    )
+
+    with caplog.at_level(logging.INFO), pytest.raises(RuntimeError, match="仲裁失败"):
+        analyzer.run_analysis("600519")
+
+    assert any("分析用量汇总" in r.getMessage() for r in caplog.records)
 
 
 def test_logging_reports_each_stage(pipeline, caplog):

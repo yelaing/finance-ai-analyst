@@ -1,4 +1,5 @@
 import logging
+import types
 
 import pytest
 
@@ -85,6 +86,55 @@ def test_embed_batch_does_not_log_on_final_failure(monkeypatch, sleep_calls, cap
     with caplog.at_level(logging.WARNING), pytest.raises(RuntimeError):
         emb._embed_batch(["x"])
     assert len(caplog.records) == 2  # 只有前两次尝试记了日志
+
+
+# ---------- 向量缓存 ----------
+
+
+def test_repeated_text_reuses_cached_vector(monkeypatch):
+    calls = []
+
+    def counting(batch):
+        calls.append(list(batch))
+        return [[1.0] for _ in batch]
+
+    monkeypatch.setattr(emb, "_embed_once", counting)
+    emb.embed_texts(["同一段文本"])
+    emb.embed_texts(["同一段文本"])
+
+    assert calls == [["同一段文本"]]
+
+
+def test_partial_cache_hit_only_embeds_missing_texts(monkeypatch):
+    calls = []
+
+    def counting(batch):
+        calls.append(list(batch))
+        return [[float(len(text))] for text in batch]
+
+    monkeypatch.setattr(emb, "_embed_once", counting)
+    emb.embed_texts(["a"])  # 先把它放进缓存
+    calls.clear()
+
+    vectors = emb.embed_texts(["a", "bbbb"])
+    assert calls == [["bbbb"]]  # 只有未命中的那条打了接口
+    assert [v[0] for v in vectors] == [1.0, 4.0]  # 顺序仍与输入一致
+
+
+def test_embedding_cache_key_includes_model(monkeypatch):
+    """换了 embedding 模型绝不能命中旧向量 —— 向量空间不同，相似度没有意义。"""
+    calls = []
+
+    def counting(batch):
+        calls.append(list(batch))
+        return [[9.0] for _ in batch]
+
+    monkeypatch.setattr(emb, "_embed_once", counting)
+    emb.embed_texts(["x"])
+    monkeypatch.setattr(emb, "_settings", types.SimpleNamespace(embedding_model="另一个模型"))
+    emb.embed_texts(["x"])
+
+    assert calls == [["x"], ["x"]]
 
 
 def test_embed_once_uses_configured_model_and_maps_results(monkeypatch):
