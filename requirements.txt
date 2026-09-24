@@ -1,7 +1,13 @@
+# 只列**代码里直接 import** 的包。传递依赖不在这里声明 ——
+# 但反过来，直接 import 就必须显式声明：靠上游带进来是不可靠的，
+# cachetools 就是这么被坑过一次（本机由旧版 streamlit 带入，
+# CI 装到新版 streamlit 后它不再被依赖，于是 import 直接失败）。
 fastapi>=0.110.0
+starlette>=0.37.0
 uvicorn>=0.29.0
 openai>=1.50.0
 langchain>=1.0.0
+langchain-core>=1.0.0
 langchain-openai>=1.0.0
 akshare>=1.14.0
 yfinance>=0.2.40
@@ -13,3 +19,5 @@ pydantic>=2.0.0
 pydantic-settings>=2.0.0
 requests>=2.32.0
 pandas>=2.0.0
+numpy>=1.26.0
+cachetools>=6.0.0
