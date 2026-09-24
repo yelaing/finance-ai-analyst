@@ -1,16 +1,12 @@
 import logging
-import os
 import re
 import time
 from dataclasses import dataclass, field
 
-from backend.config import get_settings
 from backend.core.cache import FETCH, cache_key, get_cache
 from backend.core.errors import InvalidSymbolError, UnsupportedMarketError
 
 logger = logging.getLogger(__name__)
-
-_settings = get_settings()
 
 # 各市场「成功抓取」应当产出的数据源。用 sources 这个结构化信号判断健康度，
 # 而不是去嗅探文本里的失败标记 —— 财务摘要失败时文本里根本不留标记。
@@ -116,12 +112,8 @@ def _fetch_a_share(symbol: str) -> FetchResult:
 
 
 def _fetch_us(symbol: str) -> FetchResult:
-    # 美股走 yfinance，国内网络通常需要代理。代理地址来自配置（本地写在 .env 里），
-    # 容器内为空则完全不设置，避免把请求指向不存在的代理
-    if _settings.http_proxy:
-        os.environ.setdefault("HTTP_PROXY", _settings.http_proxy)
-        os.environ.setdefault("HTTPS_PROXY", _settings.http_proxy)
-
+    # 代理环境由 backend.core.net 在启动时统一设置；这里不再改动 os.environ，
+    # 否则并发请求会读到被改过的全局变量
     info = StockInfo(symbol=symbol.upper(), name=symbol.upper(), market="us")
     financial_parts = []
     news_parts = []

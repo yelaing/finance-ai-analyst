@@ -1,4 +1,6 @@
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +10,7 @@ from backend.api.middleware import RequestContextMiddleware
 from backend.api.routes import router as api_router
 from backend.config import get_settings
 from backend.core.logging import setup_logging
+from backend.core.net import apply_network_env
 
 settings = get_settings()
 setup_logging(settings)
@@ -17,10 +20,24 @@ logger = logging.getLogger(__name__)
 if settings.is_prod and settings.cors_origins == ["*"]:
     logger.warning("生产环境 CORS_ORIGINS 仍为 ['*']，建议显式列出允许的来源")
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """网络环境变量在**服务真正启动时**才应用。
+
+    刻意不放模块顶层：那会让任何 `import backend.main` 的一方（测试、脚本）
+    都被动改掉进程的全局环境变量 —— 实测这会污染测试断言。放这里则
+    import 无副作用，uvicorn 启动时会正常执行。
+    """
+    apply_network_env(settings)
+    yield
+
+
 app = FastAPI(
     title="Finance AI Analyst",
     version="0.1.0",
     description="上市公司财报 + 舆情 + 多空辩论的自动化分析服务。",
+    lifespan=lifespan,
 )
 
 # 内层：业务请求都经过它，用于分配 request_id 与记录耗时

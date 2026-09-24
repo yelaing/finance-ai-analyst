@@ -4,11 +4,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from backend.config import get_settings
-
 logger = logging.getLogger(__name__)
-
-_settings = get_settings()
 
 
 @dataclass
@@ -55,9 +51,16 @@ def _calc_rsi(close: pd.Series, period: int = 14) -> float | None:
     loss = (-delta).clip(lower=0)
     avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    rsi = 100 - (100 / (1 + rs))
-    return round(float(rsi.iloc[-1]), 2)
+
+    last_gain = float(avg_gain.iloc[-1])
+    last_loss = float(avg_loss.iloc[-1])
+    # 全程无下跌时 loss 恒为 0，按定义 RSI 就是 100。原实现用
+    # avg_loss.replace(0, np.nan) 会让这里算出 NaN —— 连涨 15 天以上的股票会踩到，
+    # 报告里就会写成「RSI(14)=nan，处于中性区间」。先单独处理这个边界。
+    # 全程无波动时两端都为 0，取中性的 50。
+    if last_loss == 0:
+        return 100.0 if last_gain > 0 else 50.0
+    return round(100 - 100 / (1 + last_gain / last_loss), 2)
 
 
 def _calc_kdj(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 9):
@@ -120,22 +123,15 @@ def calculate_indicators(symbol: str, market: str) -> TechnicalData | None:
 
 
 def _calc_a_share(symbol: str) -> TechnicalData:
-    # A 股用国内站点，不走代理，避免 Clash 干扰
-    import os
-
     import akshare as ak
 
-    old_no_proxy = os.environ.get("NO_PROXY", "")
-    os.environ["NO_PROXY"] = "*"
-    try:
-        exch = "sh" if symbol.startswith("6") else "sz"
-        full_symbol = f"{exch}{symbol}"
-        df = ak.stock_zh_a_daily(symbol=full_symbol, adjust="qfq")
-    finally:
-        if old_no_proxy:
-            os.environ["NO_PROXY"] = old_no_proxy
-        else:
-            os.environ.pop("NO_PROXY", None)
+    # 这里原先在请求线程里临时把 NO_PROXY 改成 "*" 绕过代理，已删除：
+    # 实测 A 股数据源走系统代理同样正常（finance.sina.com.cn 0.9s / 6011 行），
+    # 而运行期改全局环境变量在并发下是竞态（详见 backend/core/net.py）。
+    # 确实需要绕过代理时，请在 .env 里配 NO_PROXY，由启动时统一应用。
+    exch = "sh" if symbol.startswith("6") else "sz"
+    full_symbol = f"{exch}{symbol}"
+    df = ak.stock_zh_a_daily(symbol=full_symbol, adjust="qfq")
 
     if df is None or df.empty:
         raise ValueError(f"No K-line data for {symbol}")
@@ -154,16 +150,9 @@ def _calc_a_share(symbol: str) -> TechnicalData:
 
 
 def _calc_us(symbol: str) -> TechnicalData:
-    import os
-
     import yfinance as yf
 
-    # 美股走 yfinance，国内网络通常需要代理。地址来自配置（本地写在 .env），
-    # 容器内为空则完全不设置，避免把请求指向不存在的代理
-    if _settings.http_proxy:
-        os.environ.setdefault("HTTP_PROXY", _settings.http_proxy)
-        os.environ.setdefault("HTTPS_PROXY", _settings.http_proxy)
-
+    # 代理环境由 backend.core.net 在启动时统一设置，这里不再改动 os.environ
     ticker = yf.Ticker(symbol)
     df = ticker.history(period="6mo")
     if df is None or df.empty:

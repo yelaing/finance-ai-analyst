@@ -44,6 +44,7 @@ _llm = ChatOpenAI(
     model=_settings.llm_model,
     temperature=_TEMPERATURE,
     max_tokens=2048,
+    request_timeout=_settings.llm_timeout,
 )
 
 _parser = JsonOutputParser()
@@ -90,6 +91,28 @@ def _run_stage(stage: str, chain, payload: dict, callbacks: dict) -> dict:
     return result
 
 
+def _run_optional_stage(
+    stage: str, chain, payload: dict, callbacks: dict, degraded: list[str]
+) -> dict | None:
+    """失败时降级为 None，而不是让整个请求失败。
+
+    只对**字段在 AnalysisReport 里可选**的阶段这么做：舆情（sentiment 可选）与
+    多空辩论（bull_thesis / bear_thesis / debate_verdict 可选）。
+    基本面与风控仲裁的字段是必需的 —— 缺了就产不出合法报告，那种情况必须让异常
+    上抛成 502，不能假装成功、给出一个"看似完整实则缺结论"的报告。
+    """
+    try:
+        return _run_stage(stage, chain, payload, callbacks)
+    except Exception:
+        degraded.append(stage)
+        logger.warning(
+            "阶段失败，本次降级为缺失",
+            exc_info=True,
+            extra={"stage": stage, "degraded": True},
+        )
+        return None
+
+
 def run_analysis(
     symbol: str, market: str = "auto", include_sentiment: bool = True
 ) -> AnalysisReport:
@@ -100,17 +123,27 @@ def run_analysis(
     """
     accumulator = TokenUsageAccumulator()
     callbacks = {stage: TokenUsageCallback(stage) for stage in _STAGES}
+    degraded: list[str] = []
     token = usage_var.set(accumulator)
     started = time.perf_counter()
     try:
-        return _run_pipeline(symbol, market, include_sentiment, callbacks)
+        return _run_pipeline(symbol, market, include_sentiment, callbacks, degraded)
     finally:
         usage_var.reset(token)
+        if degraded:
+            logger.warning(
+                "本次分析有阶段被降级（对应字段为缺失）",
+                extra={"degraded_stages": ",".join(degraded)},
+            )
         log_summary(symbol, accumulator, (time.perf_counter() - started) * 1000)
 
 
 def _run_pipeline(
-    symbol: str, market: str, include_sentiment: bool, callbacks: dict
+    symbol: str,
+    market: str,
+    include_sentiment: bool,
+    callbacks: dict,
+    degraded: list[str],
 ) -> AnalysisReport:
     data = fetch_stock_data(symbol, market)
 
@@ -140,7 +173,7 @@ def _run_pipeline(
     sentiment_summary = None
     if include_sentiment and data.news_text and "暂无" not in data.news_text:
         logger.info("Step 2/4: 舆情分析")
-        sent_json = _run_stage(
+        sent_json = _run_optional_stage(
             "sentiment",
             sentiment_chain,
             {
@@ -149,13 +182,14 @@ def _run_pipeline(
                 "news_data": data.news_text,
             },
             callbacks,
+            degraded,
         )
-        sentiment_summary = SentimentSummary(**sent_json)
+        sentiment_summary = SentimentSummary(**sent_json) if sent_json else None
 
     # ---- Step 3: 多头 + 空头辩论（并行） ----
     logger.info("Step 3/4: 多空辩论")
     news_text = data.news_text if data.news_text else "无近期新闻数据"
-    debate = _run_stage(
+    debate = _run_optional_stage(
         "debate",
         debate_chain,
         {
@@ -166,21 +200,30 @@ def _run_pipeline(
             "news_data": news_text,
         },
         callbacks,
+        degraded,
     )
-    bull_json = debate["bull"]
-    bear_json = debate["bear"]
+    bull_json = debate["bull"] if debate else None
+    bear_json = debate["bear"] if debate else None
 
-    bull_thesis = DebateThesis(
-        analyst="bull",
-        viewpoint=bull_json["viewpoint"],
-        key_evidence=bull_json["key_evidence"],
-        confidence=bull_json["confidence"],
+    bull_thesis = (
+        DebateThesis(
+            analyst="bull",
+            viewpoint=bull_json["viewpoint"],
+            key_evidence=bull_json["key_evidence"],
+            confidence=bull_json["confidence"],
+        )
+        if bull_json
+        else None
     )
-    bear_thesis = DebateThesis(
-        analyst="bear",
-        viewpoint=bear_json["viewpoint"],
-        key_evidence=bear_json["key_evidence"],
-        confidence=bear_json["confidence"],
+    bear_thesis = (
+        DebateThesis(
+            analyst="bear",
+            viewpoint=bear_json["viewpoint"],
+            key_evidence=bear_json["key_evidence"],
+            confidence=bear_json["confidence"],
+        )
+        if bear_json
+        else None
     )
 
     # ---- Step 4: 风控仲裁 ----
@@ -191,8 +234,8 @@ def _run_pipeline(
         {
             "fundamental_summary": fund_summary,
             "technical_data": tech_summary or "暂无技术面数据",
-            "bull_thesis": bull_json["viewpoint"],
-            "bear_thesis": bear_json["viewpoint"],
+            "bull_thesis": bull_json["viewpoint"] if bull_json else "（本次多空辩论未完成）",
+            "bear_thesis": bear_json["viewpoint"] if bear_json else "（本次多空辩论未完成）",
         },
         callbacks,
     )

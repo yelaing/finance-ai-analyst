@@ -29,8 +29,15 @@ class Settings(BaseSettings):
     backend_port: int = 8000
     cors_origins: list[str] = ["*"]
 
-    # 美股数据源走 yfinance，国内网络通常需要代理；容器内应留空
+    # 网络。只在启动时由 backend.core.net 应用一次，运行期不再修改 ——
+    # 这些变量被 requests/httpx 在请求时读取，多线程改它就是竞态。
     http_proxy: str | None = None
+    no_proxy: str | None = None
+
+    # LLM 单次请求超时（秒）。注意超时仍会被链上的 3 次重试重试，
+    # 所以单阶段最坏耗时约 3×该值 —— 别设太大，否则会先撞上前端 180s 的请求超时，
+    # 降级根本没机会发生。实测单次调用约 8s，30s 已是充裕余量。
+    llm_timeout: float = 30.0
 
     # 缓存（进程内 TTL + LRU）。数据源短 TTL 保新鲜度，LLM/embedding 长 TTL 做确定性记忆化
     cache_enabled: bool = True
