@@ -17,7 +17,17 @@ from backend.pipeline import data_fetcher as df
 # ---------- 假数据源 ----------
 
 
-def fake_akshare(*, info=True, financial=True, news=True):
+def fake_akshare(
+    *,
+    info=True,
+    financial=True,
+    news=True,
+    profile=True,
+    notice=True,
+    financial_empty=False,
+    notice_empty=False,
+):
+    """伪造 akshare，覆盖每类数据的主源与备源（以及「成功但返回空」）。"""
     module = types.ModuleType("akshare")
 
     def stock_individual_info_em(symbol):
@@ -30,9 +40,22 @@ def fake_akshare(*, info=True, financial=True, news=True):
             }
         )
 
+    def stock_profile_cninfo(symbol):
+        if not profile:
+            raise ValueError("巨潮接口异常")
+        return pd.DataFrame(
+            {
+                "公司名称": ["贵州茅台酒股份有限公司"],
+                "A股简称": ["贵州茅台"],
+                "所属行业": ["白酒"],
+            }
+        )
+
     def stock_financial_abstract_ths(symbol, indicator):
         if not financial:
             raise ValueError("同花顺接口异常")
+        if financial_empty:
+            return pd.DataFrame()
         return pd.DataFrame(
             {"营业总收入": ["500亿"], "净利润": ["250亿"]},
             index=pd.Index(["2026-03-31"]),
@@ -43,9 +66,25 @@ def fake_akshare(*, info=True, financial=True, news=True):
             raise ValueError("Invalid regular expression: invalid escape sequence: \\u")
         return pd.DataFrame({"标题": ["茅台发布一季报"], "发布时间": ["2026-04-01"]})
 
+    def stock_individual_notice_report(security):
+        if not notice:
+            raise ValueError("巨潮公告接口异常")
+        if notice_empty:
+            return pd.DataFrame()
+        # 形状照实测来：巨潮标题是「公司名:公司名+正文」，公司名重复两次
+        return pd.DataFrame(
+            {
+                "公告标题": ["贵州茅台:贵州茅台关于召开2026年半年度业绩说明会的公告"],
+                "公告类型": ["其他"],
+                "公告日期": ["2026-08-15"],
+            }
+        )
+
     module.stock_individual_info_em = stock_individual_info_em
+    module.stock_profile_cninfo = stock_profile_cninfo
     module.stock_financial_abstract_ths = stock_financial_abstract_ths
     module.stock_news_em = stock_news_em
+    module.stock_individual_notice_report = stock_individual_notice_report
     return module
 
 
@@ -146,32 +185,116 @@ def test_fetch_a_share_happy_path(monkeypatch):
     assert "茅台发布一季报" in result.news_text
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "expect_text", "expect_source", "expect_log"),
-    [
-        ({"info": False}, "[个股信息获取失败", "东方财富个股信息", "A股个股信息获取失败"),
-        ({"financial": False}, None, "同花顺财务摘要", "A股财务摘要获取失败"),
-        ({"news": False}, None, "东方财富新闻", "A股新闻获取失败"),
-    ],
-)
-def test_fetch_a_share_degrades_on_partial_failure(
-    monkeypatch, caplog, kwargs, expect_text, expect_source, expect_log
-):
-    monkeypatch.setitem(sys.modules, "akshare", fake_akshare(**kwargs))
+# ---------- 主源失败时退到备源 ----------
+
+
+def test_overview_falls_back_to_cninfo(monkeypatch, caplog):
+    """东财个股信息不可达（本机实情）时退到巨潮公司概况。"""
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare(info=False))
+
     with caplog.at_level(logging.WARNING):
         result = df._fetch_a_share("600519")
 
-    assert expect_source not in result.sources
-    assert expect_log in caplog.text  # 失败必须留痕，不能静默吞掉
-    if expect_text:
-        assert expect_text in result.financial_text
+    assert "巨潮资讯公司概况" in result.sources
+    assert "东方财富个股信息" not in result.sources
+    assert "贵州茅台酒股份有限公司" in result.financial_text
+    assert result.info.name == "贵州茅台"  # 简称来自备源，不再退化成代码
+    assert "改用巨潮" in caplog.text  # 降级必须留痕
 
 
-def test_fetch_a_share_falls_back_when_news_is_empty(monkeypatch):
+def test_news_falls_back_to_announcements(monkeypatch, caplog):
+    """东财新闻有 pyarrow 解析 bug 时退到巨潮个股公告。"""
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare(news=False))
+
+    with caplog.at_level(logging.WARNING):
+        result = df._fetch_a_share("600519")
+
+    assert "巨潮资讯个股公告" in result.sources
+    assert "业绩说明会" in result.news_text
+    assert "改用巨潮公告" in caplog.text
+    # 巨潮标题形如「贵州茅台:贵州茅台关于…」，重复的公司名前缀要清掉
+    assert "贵州茅台:贵州茅台" not in result.news_text
+    assert "贵州茅台关于召开" in result.news_text
+
+
+@pytest.mark.parametrize(
+    ("title", "name", "expected"),
+    [
+        ("贵州茅台:贵州茅台关于召开…", "贵州茅台", "贵州茅台关于召开…"),
+        ("贵州茅台:公告标题", "贵州茅台", "公告标题"),
+        ("没有前缀的标题", "贵州茅台", "没有前缀的标题"),
+        ("别家公司:标题", "贵州茅台", "别家公司:标题"),  # 前缀不匹配就不动
+    ],
+)
+def test_company_prefix_is_stripped_only_when_matching(title, name, expected):
+    assert df._strip_company_prefix(title, name) == expected
+
+
+def test_financial_failure_degrades(monkeypatch, caplog):
+    """财务摘要是必需类别，没有备源 —— 失败即降级且必须留痕。"""
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare(financial=False))
+
+    with caplog.at_level(logging.WARNING):
+        result = df._fetch_a_share("600519")
+
+    assert "同花顺财务摘要" not in result.sources
+    assert "A股财务摘要失败" in caplog.text
+    assert df._is_healthy("a_share", result) is False
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expect_text"),
+    [
+        ({"info": False, "profile": False}, "[个股信息获取失败"),
+        ({"news": False, "notice": False}, "[新闻获取失败]"),
+    ],
+)
+def test_both_sources_failing_degrades(monkeypatch, caplog, kwargs, expect_text):
+    """主源与备源都挂掉才算降级 —— 这时才写降级文案、才不记源名。"""
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare(**kwargs))
+
+    with caplog.at_level(logging.WARNING):
+        result = df._fetch_a_share("600519")
+
+    text = result.financial_text + result.news_text
+    assert expect_text in text
+    assert "两个源都失败" in caplog.text
+
+
+# ---------- 源成功但返回空：是真实状态，不是降级 ----------
+
+
+def test_empty_financial_result_still_records_source(monkeypatch):
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare(financial_empty=True))
+
+    result = df._fetch_a_share("600519")
+
+    assert "同花顺财务摘要" in result.sources  # 查询成功，哪怕这期没数据
+    assert "--- 最新财务摘要 ---" not in result.financial_text
+    assert df._is_healthy("a_share", result) is True
+
+
+def test_empty_announcements_still_record_source(monkeypatch):
+    """公司真没发公告的日子，不能让整个抓取被判为降级 —— 否则缓存永远不生效。"""
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare(news=False, notice_empty=True))
+
+    result = df._fetch_a_share("600519")
+
+    assert "巨潮资讯个股公告" in result.sources
+    assert result.news_text == "暂无近期新闻"
+    assert df._is_healthy("a_share", result) is True
+
+
+def test_news_source_is_recorded_even_when_it_returns_nothing(monkeypatch):
+    """主源成功但为空：记源名、文本用「暂无…」，与「查询失败」区分开。"""
     module = fake_akshare()
     module.stock_news_em = lambda symbol: pd.DataFrame()
     monkeypatch.setitem(sys.modules, "akshare", module)
-    assert df._fetch_a_share("600519").news_text == "暂无近期新闻"
+
+    result = df._fetch_a_share("600519")
+
+    assert "东方财富新闻" in result.sources
+    assert result.news_text == "暂无近期新闻"
 
 
 # ---------- _fetch_us ----------
@@ -228,9 +351,9 @@ def test_fetch_us_does_not_mutate_process_env(monkeypatch, proxyless):
 HEALTHY_SOURCES = ["东方财富个股信息", "同花顺财务摘要", "东方财富新闻"]
 
 
-def _result(*, symbol="600519", sources=None) -> df.FetchResult:
+def _result(*, symbol="600519", market="a_share", sources=None) -> df.FetchResult:
     return df.FetchResult(
-        info=df.StockInfo(symbol, "贵州茅台", "a_share"),
+        info=df.StockInfo(symbol, "贵州茅台", market),
         financial_text="财务数据",
         news_text="近期新闻",
         sources=HEALTHY_SOURCES if sources is None else sources,
@@ -287,18 +410,30 @@ def test_degraded_fetch_is_not_cached(monkeypatch, caplog):
 
 
 @pytest.mark.parametrize(
-    ("sources", "healthy"),
+    ("market", "sources", "healthy"),
     [
-        (["东方财富个股信息", "同花顺财务摘要"], False),  # 缺新闻
-        (["同花顺财务摘要", "东方财富新闻"], False),  # 缺个股信息
-        ([], False),  # 全失败
-        (["东方财富个股信息", "同花顺财务摘要", "东方财富新闻", "额外源"], True),
+        # 必需类别：公司概况（主/备任一）+ 财务摘要
+        ("a_share", ["东方财富个股信息", "同花顺财务摘要"], True),
+        ("a_share", ["巨潮资讯公司概况", "同花顺财务摘要"], True),  # 走备源也算
+        ("a_share", ["东方财富个股信息"], False),  # 缺财务摘要
+        ("a_share", ["东方财富新闻"], False),  # 只有可选类别
+        ("a_share", [], False),
+        # 新闻/公告只喂可选的舆情阶段，缺席不是降级
+        ("a_share", ["东方财富个股信息", "同花顺财务摘要", "东方财富新闻"], True),
+        # 美股：Yahoo Finance 必需，新闻可选
+        ("us", ["Yahoo Finance"], True),
+        ("us", ["Yahoo Finance", "Yahoo Finance News"], True),
+        ("us", ["Yahoo Finance News"], False),
     ],
 )
-def test_health_requires_all_expected_sources(sources, healthy):
-    """健康度用 sources 这个结构化信号判断，不嗅探文本标记 ——
-    财务摘要失败时文本里根本不留标记。"""
-    assert df._is_healthy("a_share", _result(sources=sources)) is healthy
+def test_health_requires_only_the_required_categories(market, sources, healthy):
+    """健康度按「必需类别」判断：每类至少一个源成功查询过。
+
+    新闻/公告不算必需 —— 它只喂可选的舆情阶段，公司真没发公告属于真实状态。
+    这条判据决定了抓取结果能不能进缓存，所以既不能漏（漏则缓存坏数据），
+    也不能过严（过严则缓存永远不生效）。
+    """
+    assert df._is_healthy(market, _result(market=market, sources=sources)) is healthy
 
 
 def test_cache_hit_is_logged(monkeypatch, caplog):
@@ -343,16 +478,6 @@ def test_cache_disabled_always_fetches(monkeypatch):
 
 
 # ---------- 边界：空数据与脏值 ----------
-
-
-def test_fetch_a_share_skips_financial_block_when_empty(monkeypatch):
-    module = fake_akshare()
-    module.stock_financial_abstract_ths = lambda symbol, indicator: pd.DataFrame()
-    monkeypatch.setitem(sys.modules, "akshare", module)
-
-    result = df._fetch_a_share("600519")
-    assert "同花顺财务摘要" not in result.sources
-    assert "--- 最新财务摘要 ---" not in result.financial_text
 
 
 @pytest.mark.parametrize("dirty", ["nan", "None", "", None])
