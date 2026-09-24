@@ -6,7 +6,7 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.api.errors import register_exception_handlers
-from backend.api.health import check_all, is_ready
+from backend.api.health import HealthResponse, ReadyResponse, check_all, is_ready
 from backend.api.middleware import RequestContextMiddleware
 from backend.api.routes import router as api_router
 from backend.config import get_settings
@@ -35,10 +35,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
+# 给 /docs 的分组加说明，避免只有标签名没有上下文
+TAGS_METADATA = [
+    {"name": "analysis", "description": "跑四阶段分析流水线，产出结构化报告"},
+    {"name": "history", "description": "历史报告：按代码精确检索、语义检索、导出 Markdown"},
+    {"name": "system", "description": "运维接口：存活/就绪探针。指标在 /metrics（不进本文档）"},
+]
+
 app = FastAPI(
     title="Finance AI Analyst",
     version="0.1.0",
-    description="上市公司财报 + 舆情 + 多空辩论的自动化分析服务。",
+    description=(
+        "上市公司财报 + 舆情 + 多空辩论的自动化分析服务。\n\n"
+        "四阶段流水线：基本面+技术面 → 舆情 → 多空辩论 → 风控仲裁。\n\n"
+        "**错误响应统一为 `{detail, code, request_id}`**，`code` 是稳定的机器可读标识，"
+        "客户端可据此分支处理而不必解析文案。"
+    ),
+    openapi_tags=TAGS_METADATA,
     lifespan=lifespan,
 )
 
@@ -57,8 +70,8 @@ register_exception_handlers(app)
 app.include_router(api_router, prefix="/api/v1")
 
 
-@app.get("/health", tags=["system"], summary="存活探针")
-def health() -> dict[str, object]:
+@app.get("/health", tags=["system"], summary="存活探针", response_model=HealthResponse)
+def health() -> HealthResponse:
     """进程活着就返回 200，顺带报各依赖的状态。
 
     **不因为依赖不可用而改状态码** —— 存活探针失败会让编排去重启容器，
@@ -66,14 +79,19 @@ def health() -> dict[str, object]:
     需要严格判定的场景用 /health/ready。
     """
     statuses = check_all()
-    return {
-        "status": "ok" if is_ready(statuses) else "degraded",
-        "dependencies": [status.as_dict() for status in statuses],
-    }
+    return HealthResponse(status="ok" if is_ready(statuses) else "degraded", dependencies=statuses)
 
 
-@app.get("/health/ready", tags=["system"], summary="就绪探针")
-def health_ready(response: Response) -> dict[str, object]:
+@app.get(
+    "/health/ready",
+    tags=["system"],
+    summary="就绪探针",
+    response_model=ReadyResponse,
+    # 注意 503 挂的是 ReadyResponse 而不是统一错误体 —— 这个端点即使不可用
+    # 也返回逐依赖状态，好让调用方知道是哪一个依赖挂了
+    responses={503: {"model": ReadyResponse, "description": "依赖不可用，逐依赖状态见响应体"}},
+)
+def health_ready(response: Response) -> ReadyResponse:
     """依赖不可用返回 503，便于接监控告警与流量摘除。
 
     这里刻意不走统一错误响应体：探针要的是机器可读的逐依赖状态，
@@ -83,10 +101,7 @@ def health_ready(response: Response) -> dict[str, object]:
     ready = is_ready(statuses)
     if not ready:
         response.status_code = 503
-    return {
-        "status": "ready" if ready else "not_ready",
-        "dependencies": [status.as_dict() for status in statuses],
-    }
+    return ReadyResponse(status="ready" if ready else "not_ready", dependencies=statuses)
 
 
 @app.get("/metrics", summary="Prometheus 指标", include_in_schema=False)

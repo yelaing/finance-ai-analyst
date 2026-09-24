@@ -1,8 +1,9 @@
 """错误码与业务异常。客户端可以只依据 code 分支处理，不必解析文案。"""
 
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ErrorCode(StrEnum):
@@ -66,3 +67,38 @@ class ErrorResponse(BaseModel):
     detail: str
     code: str
     request_id: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "detail": "无法自动识别 !!!bad 的市场，请手动指定 market 参数",
+                    "code": "INVALID_SYMBOL",
+                    "request_id": "3f9a1c2e",
+                }
+            ]
+        }
+    )
+
+
+_ERROR_DESCRIPTIONS: dict[int, str] = {
+    400: "参数不合法（INVALID_SYMBOL / UNSUPPORTED_MARKET / INVALID_REQUEST）",
+    404: "资源不存在（NOT_FOUND / REPORT_NOT_FOUND）",
+    422: "请求校验失败（VALIDATION_ERROR）",
+    500: "服务器内部错误（INTERNAL_ERROR），响应体不含内部细节",
+}
+
+
+def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
+    """生成挂到端点 `responses=` 上的声明，让 /docs 展示统一的错误形状。
+
+    这些只是文档：运行时的错误体由 backend/api/errors.py 的处理器产出。
+    两者必须一致，所以响应体模型与错误码都取自本模块，避免两处各写一份。
+    """
+    return {
+        code: {
+            "model": ErrorResponse,
+            "description": _ERROR_DESCRIPTIONS.get(code, "错误"),
+        }
+        for code in codes
+    }

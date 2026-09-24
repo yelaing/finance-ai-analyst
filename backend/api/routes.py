@@ -3,7 +3,12 @@ from datetime import datetime
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
 
-from backend.core.errors import AppError, InvalidRequestError, ReportNotFoundError
+from backend.core.errors import (
+    AppError,
+    InvalidRequestError,
+    ReportNotFoundError,
+    error_responses,
+)
 from backend.pipeline.analyzer import run_analysis
 from backend.pipeline.report_export import render_markdown
 from backend.schemas.models import (
@@ -24,7 +29,10 @@ router = APIRouter()
     tags=["analysis"],
     summary="分析一支股票",
     description="跑完整的四阶段流水线（基本面+技术面 → 舆情 → 多空辩论 → 风控仲裁）。"
-    "当天已分析过的股票会直接返回缓存结果（from_cache=true），不再重复调用 LLM。",
+    "当天已分析过的股票会直接返回缓存结果（from_cache=true），不再重复调用 LLM。\n\n"
+    "耗时通常 30-40 秒（5 次 LLM 调用）；命中缓存时约 2 秒。"
+    "舆情阶段失败会降级为缺失而不是让请求失败；基本面或风控仲裁失败则整体返回错误。",
+    responses=error_responses(400, 422, 500),
 )
 def analyze(req: AnalysisRequest) -> AnalysisResponse:
     store = get_store()
@@ -59,7 +67,9 @@ def analyze(req: AnalysisRequest) -> AnalysisResponse:
     response_model=HistoryResponse,
     tags=["history"],
     summary="按股票代码查历史分析记录",
-    description="精确检索（不是语义检索）。按时间倒序返回，summary 字段是数据来源列表。",
+    description="精确检索（不是语义检索）。按时间倒序返回，summary 字段是数据来源列表。\n\n"
+    "没有该股票的历史时返回空列表而不是 404 —— 「查过但没有」不是错误。",
+    responses=error_responses(422, 500),
 )
 def history(
     symbol: str = Query(description="股票代码，如 600519 或 AAPL"),
@@ -76,7 +86,10 @@ def history(
     tags=["history"],
     summary="语义检索历史报告",
     description="把 query 向量化后在 ChromaDB 里做余弦相似度检索，可跨股票；"
-    "传入 symbol 则限定在该股票范围内。score 为余弦相似度，越大越相似。",
+    "传入 symbol 则限定在该股票范围内。score 为余弦相似度，越大越相似。\n\n"
+    "检索的是报告的**关键文本**（基本面总结 + 结论 + 风险点 + 舆情 + 多空分歧），"
+    "不是全文；每条命中的 text 字段就是实际参与比较的文本，便于判断命中原因。",
+    responses=error_responses(422, 500),
 )
 def search(
     q: str = Query(description="自然语言检索词，如「高风险的消费类股票分析」"),
@@ -92,7 +105,23 @@ def search(
     "/export/{symbol}",
     tags=["history"],
     summary="导出最新报告为 Markdown",
-    description="把该股票最近一次分析报告渲染成 Markdown 文件下载。",
+    description="把该股票最近一次分析报告渲染成 Markdown 文件下载"
+    "（响应带 `Content-Disposition` 附件头，浏览器会直接下载）。\n\n"
+    "返回的是 Markdown 文本而不是 JSON —— 没有 `response_model`，"
+    "响应体形状在下方显式声明。",
+    # 不设 response_class 的话 FastAPI 会给 200 补一个默认的 application/json ——
+    # 这个端点从不返回 JSON，那样声明会误导生成出来的客户端
+    response_class=Response,
+    responses={
+        200: {
+            "description": "Markdown 格式的分析报告",
+            "content": {"text/markdown": {"schema": {"type": "string"}}},
+        },
+        # 422 也必须显式声明：FastAPI 会给带参数的端点自动补一个 422，形状是它原生的
+        # HTTPValidationError；而运行时的校验错误处理器把 422 统一重塑成了 ErrorResponse。
+        # 不覆盖它，文档承诺的形状就和实际返回的不一致。
+        **error_responses(404, 422, 500),
+    },
 )
 def export_report(symbol: str) -> Response:
     store = get_store()

@@ -10,9 +10,11 @@
 
 import logging
 from dataclasses import dataclass
+from typing import Literal
 
 import chromadb
 from openai import OpenAI
+from pydantic import BaseModel, ConfigDict
 
 from backend.config import get_settings
 from backend.core.cache import HEALTH, get_cache
@@ -32,6 +34,52 @@ class DependencyStatus:
 
     def as_dict(self) -> dict[str, object]:
         return {"name": self.name, "ok": self.ok, "detail": self.detail}
+
+
+class HealthResponse(BaseModel):
+    """存活探针响应。status 只会是 ok / degraded —— **依赖不可用也不改 HTTP 状态码**。"""
+
+    status: Literal["ok", "degraded"]
+    dependencies: list[DependencyStatus]
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "status": "ok",
+                    "dependencies": [
+                        {"name": "chromadb", "ok": True, "detail": "12 条向量"},
+                        {"name": "llm", "ok": True, "detail": "261 个模型可用"},
+                    ],
+                }
+            ]
+        }
+    )
+
+
+class ReadyResponse(BaseModel):
+    """就绪探针响应。status 为 not_ready 时 HTTP 状态码是 503。"""
+
+    status: Literal["ready", "not_ready"]
+    dependencies: list[DependencyStatus]
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "status": "not_ready",
+                    "dependencies": [
+                        {"name": "chromadb", "ok": True, "detail": "12 条向量"},
+                        {
+                            "name": "llm",
+                            "ok": False,
+                            "detail": "APITimeoutError: Request timed out.",
+                        },
+                    ],
+                }
+            ]
+        }
+    )
 
 
 def check_llm() -> DependencyStatus:
