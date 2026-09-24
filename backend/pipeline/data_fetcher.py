@@ -5,11 +5,19 @@ import time
 from dataclasses import dataclass, field
 
 from backend.config import get_settings
+from backend.core.cache import FETCH, cache_key, get_cache
 from backend.core.errors import InvalidSymbolError, UnsupportedMarketError
 
 logger = logging.getLogger(__name__)
 
 _settings = get_settings()
+
+# 各市场「成功抓取」应当产出的数据源。用 sources 这个结构化信号判断健康度，
+# 而不是去嗅探文本里的失败标记 —— 财务摘要失败时文本里根本不留标记。
+_EXPECTED_SOURCES = {
+    "a_share": {"东方财富个股信息", "同花顺财务摘要", "东方财富新闻"},
+    "us": {"Yahoo Finance", "Yahoo Finance News"},
+}
 
 
 @dataclass
@@ -173,23 +181,44 @@ def _fetch_us(symbol: str) -> FetchResult:
     )
 
 
+def _is_healthy(market: str, result: FetchResult) -> bool:
+    return _EXPECTED_SOURCES[market] <= set(result.sources)
+
+
 def fetch_stock_data(symbol: str, market: str = "auto") -> FetchResult:
     if market == "auto":
         market = detect_market(symbol)
-
-    started = time.perf_counter()
-    if market == "a_share":
-        result = _fetch_a_share(symbol)
-    elif market == "us":
-        result = _fetch_us(symbol)
-    else:
+    if market not in _EXPECTED_SOURCES:
         raise UnsupportedMarketError(f"不支持的市场类型: {market}")
 
+    cache = get_cache()
+    key = cache_key(market, symbol)
+    cached = cache.get(FETCH, key)
+    if cached is not None:
+        logger.info(
+            "数据源命中缓存",
+            extra={"cache_hit": True, "symbol": symbol, "market": market},
+        )
+        return cached
+
+    started = time.perf_counter()
+    result = _fetch_a_share(symbol) if market == "a_share" else _fetch_us(symbol)
     logger.info(
-        "数据抓取完成 symbol=%s market=%s sources=%s",
-        symbol,
-        market,
-        result.sources,
-        extra={"duration_ms": round((time.perf_counter() - started) * 1000, 1)},
+        "数据抓取完成",
+        extra={
+            "symbol": symbol,
+            "market": market,
+            "sources": result.sources,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+        },
     )
+
+    if _is_healthy(market, result):
+        cache.set(FETCH, key, result)
+    else:
+        # 缓存降级结果等于把一次偶发故障固化成半小时的持续降级，比不缓存更糟
+        logger.warning(
+            "数据源部分失败，结果不写入缓存",
+            extra={"symbol": symbol, "market": market, "sources": result.sources},
+        )
     return result

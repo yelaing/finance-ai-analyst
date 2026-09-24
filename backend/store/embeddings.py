@@ -4,6 +4,7 @@ import time
 from openai import OpenAI
 
 from backend.config import get_settings
+from backend.core.cache import EMBED, cache_key, get_cache
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,30 @@ _client = OpenAI(
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    """把一批文本向量化，按 provider 上限自动分批。返回向量顺序与输入一致。"""
+    """把一批文本向量化，按 provider 上限自动分批；已算过的文本直接复用缓存。
+
+    缓存键含 embedding 模型名 —— 换了模型绝不能命中旧向量。
+    逐条缓存而非整批：语义检索每次只传一个 query，同 query 反复检索时不必再打接口。
+    """
+    if not texts:
+        return []
+
+    cache = get_cache()
+    keys = [cache_key(text, model=_settings.embedding_model) for text in texts]
+    vectors = [cache.get(EMBED, key) for key in keys]
+
+    missing = [index for index, vector in enumerate(vectors) if vector is None]
+    if missing:
+        computed = _embed_in_batches([texts[index] for index in missing])
+        for index, vector in zip(missing, computed, strict=True):
+            cache.set(EMBED, keys[index], vector)
+            vectors[index] = vector
+
+    # 上面已把所有 None 填满；带条件的推导让类型收窄回 list[list[float]]
+    return [vector for vector in vectors if vector is not None]
+
+
+def _embed_in_batches(texts: list[str]) -> list[list[float]]:
     vectors: list[list[float]] = []
     for start in range(0, len(texts), _BATCH_SIZE):
         vectors.extend(_embed_batch(texts[start : start + _BATCH_SIZE]))
