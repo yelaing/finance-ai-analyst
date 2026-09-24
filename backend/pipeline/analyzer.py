@@ -8,6 +8,7 @@ from langchain_openai import ChatOpenAI
 
 from backend.config import get_settings
 from backend.core.cache import LLM, cache_key, get_cache
+from backend.core.metrics import get_metrics
 from backend.core.tokens import (
     TokenUsageAccumulator,
     TokenUsageCallback,
@@ -105,6 +106,7 @@ def _run_optional_stage(
         return _run_stage(stage, chain, payload, callbacks)
     except Exception:
         degraded.append(stage)
+        get_metrics().degraded_stages.labels(stage=stage).inc()
         logger.warning(
             "阶段失败，本次降级为缺失",
             exc_info=True,
@@ -127,7 +129,13 @@ def run_analysis(
     token = usage_var.set(accumulator)
     started = time.perf_counter()
     try:
-        return _run_pipeline(symbol, market, include_sentiment, callbacks, degraded)
+        report = _run_pipeline(symbol, market, include_sentiment, callbacks, degraded)
+    except Exception:
+        get_metrics().observe_analysis(ok=False)
+        raise
+    else:
+        get_metrics().observe_analysis(ok=True)
+        return report
     finally:
         usage_var.reset(token)
         if degraded:

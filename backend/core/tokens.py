@@ -13,6 +13,8 @@ from typing import Any
 
 from langchain_core.callbacks import BaseCallbackHandler
 
+from backend.core.metrics import get_metrics
+
 logger = logging.getLogger(__name__)
 
 
@@ -109,10 +111,13 @@ class TokenUsageCallback(BaseCallbackHandler):
     def on_llm_end(self, response: Any, **kwargs: Any) -> None:
         parsed = extract_usage(response)
         if parsed is None:
+            # 拿不到用量也要计数，否则「调用了但没记到 token」会从指标上消失
+            get_metrics().observe_llm_failure(self.stage, "usage_unparsed")
             logger.warning("未能从响应中解析 token 用量 stage=%s", self.stage)
             return
 
         model, input_tokens, output_tokens = parsed
+        get_metrics().observe_llm_tokens(self.stage, model, input_tokens, output_tokens)
         logger.info(
             "LLM 调用完成 stage=%s model=%s tokens_in=%d tokens_out=%d",
             self.stage,
@@ -130,6 +135,10 @@ class TokenUsageCallback(BaseCallbackHandler):
         accumulator = usage_var.get()
         if accumulator is not None:
             accumulator.add(LlmCall(self.stage, model, input_tokens, output_tokens))
+
+    def on_llm_error(self, error: BaseException, **kwargs: Any) -> None:
+        """失败的调用不会走 on_llm_end —— 不在这里记，失败率就看不出异常。"""
+        get_metrics().observe_llm_failure(self.stage, type(error).__name__)
 
 
 def estimate_cost(

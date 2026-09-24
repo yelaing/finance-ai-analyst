@@ -11,10 +11,21 @@ from starlette.responses import JSONResponse, Response
 
 from backend.core.errors import ErrorCode, ErrorResponse
 from backend.core.logging import request_id_var
+from backend.core.metrics import get_metrics
 
 logger = logging.getLogger(__name__)
 
 REQUEST_ID_HEADER = "X-Request-ID"
+
+
+def _route_template(request: Request) -> str:
+    """指标标签用**路由模板**而不是原始 URL。
+
+    `/api/v1/export/{symbol}` 用原始 URL 的话，每个股票代码都会长出一条独立时间
+    序列 —— 几百个股票就能把 Prometheus 拖垮。未匹配到路由时统一归到 unmatched。
+    """
+    route = request.scope.get("route")
+    return getattr(route, "path", None) or "unmatched"
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
@@ -57,6 +68,12 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 request.url.path,
                 response.status_code,
                 extra={"duration_ms": elapsed_ms},
+            )
+            get_metrics().observe_http(
+                method=request.method,
+                path=_route_template(request),
+                status=response.status_code,
+                seconds=elapsed_ms / 1000,
             )
             response.headers[REQUEST_ID_HEADER] = request_id
             return response

@@ -18,9 +18,15 @@ from typing import Any
 
 from cachetools import TTLCache
 
+from backend.core.metrics import get_metrics
+
 FETCH = "fetch"
 LLM = "llm"
 EMBED = "embed"
+HEALTH = "health"
+
+# 新增调用点时同步加到这里：NoOpCache 靠它给出各命名空间的尺寸，漏加会让两者的键集合悄悄分叉
+NAMESPACES = (FETCH, LLM, EMBED, HEALTH)
 
 
 def cache_key(*parts: Any, **params: Any) -> str:
@@ -54,7 +60,10 @@ class MemoryCache:
         return bucket
 
     def get(self, namespace: str, key: str) -> Any | None:
-        return self._bucket(namespace).get(key)
+        value = self._bucket(namespace).get(key)
+        # 在缓存自身计数，而不是各调用点 —— 覆盖率天然完整，以后新增调用点也不会漏
+        get_metrics().observe_cache(namespace, value is not None)
+        return value
 
     def set(self, namespace: str, key: str, value: Any) -> None:
         self._bucket(namespace)[key] = value
@@ -80,7 +89,7 @@ class NoOpCache:
         return None
 
     def sizes(self) -> dict[str, int]:
-        return {FETCH: 0, LLM: 0, EMBED: 0}
+        return dict.fromkeys(NAMESPACES, 0)
 
 
 @functools.lru_cache
@@ -96,5 +105,6 @@ def get_cache() -> MemoryCache | NoOpCache:
             FETCH: (settings.cache_maxsize, settings.cache_ttl_seconds),
             LLM: (settings.cache_maxsize, settings.cache_llm_ttl_seconds),
             EMBED: (settings.cache_maxsize, settings.cache_llm_ttl_seconds),
+            HEALTH: (settings.cache_maxsize, settings.health_probe_ttl_seconds),
         }
     )

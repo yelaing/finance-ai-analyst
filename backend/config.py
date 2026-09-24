@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # 降级根本没机会发生。实测单次调用约 8s，30s 已是充裕余量。
     llm_timeout: float = 30.0
 
+    # 就绪探针里 LLM 连通性检查结果的缓存时长（秒）。
+    # 探针可能被容器编排高频调用，而每次探测都要打一次 provider 的 /models。
+    health_probe_ttl_seconds: float = 10.0
+
     # 缓存（进程内 TTL + LRU）。数据源短 TTL 保新鲜度，LLM/embedding 长 TTL 做确定性记忆化
     cache_enabled: bool = True
     cache_maxsize: int = 512

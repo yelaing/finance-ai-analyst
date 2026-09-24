@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from backend.core.cache import FETCH, cache_key, get_cache
 from backend.core.errors import InvalidSymbolError, UnsupportedMarketError
+from backend.core.metrics import get_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -195,17 +196,20 @@ def fetch_stock_data(symbol: str, market: str = "auto") -> FetchResult:
 
     started = time.perf_counter()
     result = _fetch_a_share(symbol) if market == "a_share" else _fetch_us(symbol)
+    elapsed = time.perf_counter() - started
+    healthy = _is_healthy(market, result)
+    get_metrics().observe_fetch(market, healthy, elapsed)
     logger.info(
         "数据抓取完成",
         extra={
             "symbol": symbol,
             "market": market,
             "sources": result.sources,
-            "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+            "duration_ms": round(elapsed * 1000, 1),
         },
     )
 
-    if _is_healthy(market, result):
+    if healthy:
         cache.set(FETCH, key, result)
     else:
         # 缓存降级结果等于把一次偶发故障固化成半小时的持续降级，比不缓存更糟
