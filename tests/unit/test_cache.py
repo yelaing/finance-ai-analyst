@@ -5,7 +5,15 @@ TTL 用注入的假时钟验证，不真的 sleep —— 依赖真实时间的�
 
 import pytest
 
-from backend.core.cache import EMBED, FETCH, LLM, MemoryCache, NoOpCache, cache_key, get_cache
+from backend.core.cache import (
+    FETCH,
+    LLM,
+    NAMESPACES,
+    MemoryCache,
+    NoOpCache,
+    cache_key,
+    get_cache,
+)
 
 
 class FakeClock:
@@ -132,7 +140,7 @@ def test_noop_cache_never_stores():
     cache.set(FETCH, "k", 1)
     assert cache.get(FETCH, "k") is None
     cache.clear()
-    assert cache.sizes() == {FETCH: 0, LLM: 0, EMBED: 0}
+    assert cache.sizes() == dict.fromkeys(NAMESPACES, 0)
 
 
 def test_get_cache_returns_noop_when_disabled(monkeypatch):
@@ -146,7 +154,8 @@ def test_get_cache_returns_memory_cache_by_default(monkeypatch):
     reset_caches()
     cache = get_cache()
     assert isinstance(cache, MemoryCache)
-    assert set(cache.sizes()) == {FETCH, LLM, EMBED}
+    # 用的是共享的 NAMESPACES 常量：漏加命名空间会让 NoOp 与 Memory 的键集合悄悄分叉
+    assert set(cache.sizes()) == set(NAMESPACES)
 
 
 def test_get_cache_is_a_singleton(monkeypatch):

@@ -29,6 +29,16 @@ def imported_top_level_modules() -> set[str]:
     return modules
 
 
+def normalize(name: str) -> str:
+    """按 PEP 503 归一化包名：小写，且把连续的 - _ . 都视作 -。
+
+    不做归一化就会产生假报警：`packages_distributions()` 报的是
+    `prometheus_client`（下划线），而 requirements 里通常写
+    `prometheus-client`（连字符）—— 按 PEP 503 它们是同一个发行包。
+    """
+    return re.sub(r"[-_.]+", "-", name).strip().lower()
+
+
 def declared_distributions() -> set[str]:
     names: set[str] = set()
     for filename in REQUIREMENT_FILES:
@@ -36,7 +46,7 @@ def declared_distributions() -> set[str]:
             line = line.strip()
             if not line or line.startswith(("#", "-r")):
                 continue
-            names.add(re.split(r"[<>=!~\[;]", line, maxsplit=1)[0].strip().lower())
+            names.add(normalize(re.split(r"[<>=!~\[;]", line, maxsplit=1)[0]))
     return names
 
 
@@ -57,7 +67,7 @@ def test_every_imported_distribution_is_declared():
         if not distributions:
             unmapped.append(module)
             continue
-        if not any(dist.lower() in declared for dist in distributions):
+        if not any(normalize(dist) in declared for dist in distributions):
             undeclared[module] = distributions
 
     assert not unmapped, f"这些模块名无法映射到任何发行包：{unmapped}"

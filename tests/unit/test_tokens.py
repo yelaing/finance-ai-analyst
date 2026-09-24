@@ -92,6 +92,35 @@ def test_callback_warns_when_usage_unparseable(caplog):
     assert "未能从响应中解析 token 用量" in caplog.text
 
 
+def test_unparseable_usage_is_still_counted_as_a_call():
+    """解析不出用量也要计数，否则「调用了但没记到 token」会从指标上凭空消失。"""
+    from backend.core.metrics import get_metrics
+
+    response = make_response(with_usage_metadata=False, with_token_usage=False)
+    TokenUsageCallback("fundamental").on_llm_end(response)
+
+    assert (
+        get_metrics().registry.get_sample_value(
+            "llm_calls_total", {"stage": "fundamental", "outcome": "usage_unparsed"}
+        )
+        == 1
+    )
+
+
+def test_callback_counts_failures_via_metrics():
+    """失败的调用不会走 on_llm_end —— 不在这条路径上记，失败率就永远是 0。"""
+    from backend.core.metrics import get_metrics
+
+    TokenUsageCallback("debate").on_llm_error(TimeoutError("超时"))
+
+    assert (
+        get_metrics().registry.get_sample_value(
+            "llm_calls_total", {"stage": "debate", "outcome": "TimeoutError"}
+        )
+        == 1
+    )
+
+
 def test_callback_logs_structured_fields(caplog):
     with caplog.at_level(logging.INFO):
         TokenUsageCallback("sentiment").on_llm_end(make_response(input_tokens=7, output_tokens=3))

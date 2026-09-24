@@ -361,6 +361,67 @@ def test_second_identical_run_makes_no_llm_calls(pipeline):
     assert calls == []
 
 
+def test_cache_reads_are_counted_for_llm_stages(pipeline):
+    """缓存的 hit/miss 计数由缓存自身记，不靠各调用点自觉。
+
+    这里走真实的 analyzer 路径：替身只换了链，缓存代码是真跑的。
+    每轮 4 个阶段，所以第二轮恰好 4 次 hit。
+    """
+    from backend.core.cache import LLM
+    from backend.core.metrics import get_metrics
+
+    analyzer.run_analysis("600519")
+    analyzer.run_analysis("600519")
+
+    registry = get_metrics().registry
+    assert (
+        registry.get_sample_value("cache_operations_total", {"namespace": LLM, "result": "miss"})
+        == 4
+    )
+    assert (
+        registry.get_sample_value("cache_operations_total", {"namespace": LLM, "result": "hit"})
+        == 4
+    )
+
+
+def test_analysis_outcome_is_counted(pipeline, monkeypatch):
+    from backend.core.cache import get_cache
+    from backend.core.metrics import get_metrics
+
+    calls, _ = pipeline
+    analyzer.run_analysis("600519")
+
+    # 必须清缓存：否则第二次运行会命中上一次的 LLM 结果，
+    # 那个「会抛异常的替身链」根本没机会被调用（缓存把失败场景挡掉了）
+    get_cache().clear()
+    monkeypatch.setattr(
+        analyzer, "arbitrator_chain", FakeChain("arbitrator", RuntimeError("炸"), calls)
+    )
+    with pytest.raises(RuntimeError):
+        analyzer.run_analysis("600519")
+
+    registry = get_metrics().registry
+    assert registry.get_sample_value("analysis_runs_total", {"outcome": "ok"}) == 1
+    assert registry.get_sample_value("analysis_runs_total", {"outcome": "failed"}) == 1
+
+
+def test_degraded_stage_is_counted(pipeline, monkeypatch):
+    from backend.core.metrics import get_metrics
+
+    calls, _ = pipeline
+    monkeypatch.setattr(
+        analyzer, "sentiment_chain", FakeChain("sentiment", RuntimeError("超时"), calls)
+    )
+    analyzer.run_analysis("600519")
+
+    assert (
+        get_metrics().registry.get_sample_value(
+            "analysis_degraded_stages_total", {"stage": "sentiment"}
+        )
+        == 1
+    )
+
+
 def test_usage_summary_explains_zero_tokens_on_cache_hit(pipeline, caplog):
     """token 为 0 时必须能看出是因为命中缓存，而不是统计坏了。"""
     calls, _ = pipeline

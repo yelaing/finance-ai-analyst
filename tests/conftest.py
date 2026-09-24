@@ -65,6 +65,19 @@ def isolated_caches():
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def isolated_metrics():
+    """指标单例连带它的 registry 是全局的，跨用例会累积计数。
+
+    不清掉的话断言只能写成「≥ N」这种没意义的形状，测不出真实行为。
+    """
+    from backend.core.metrics import get_metrics
+
+    get_metrics.cache_clear()
+    yield
+    get_metrics.cache_clear()
+
+
 @pytest.fixture
 def stub_embed(monkeypatch):
     """替换向量化调用，返回假向量。

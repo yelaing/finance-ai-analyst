@@ -80,10 +80,26 @@ def test_network_env_is_not_applied_at_import_time():
     assert top_level_calls == [], "apply_network_env 被放在模块顶层了，应移入 lifespan"
 
 
-def test_health(client):
+def test_health_is_liveness_and_reports_dependencies(client, monkeypatch):
+    """存活探针**始终 200**（依赖不可用也不改状态码 —— 否则编排会去重启一个
+    本来健康的容器），但会把各依赖状态报出来供人看。"""
+    import backend.main as main_module
+    from backend.api.health import DependencyStatus
+
+    monkeypatch.setattr(
+        main_module,
+        "check_all",
+        lambda: [
+            DependencyStatus("chromadb", True, "12 条向量"),
+            DependencyStatus("llm", False, "APITimeoutError: boom"),
+        ],
+    )
+
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    body = resp.json()
+    assert body["status"] == "degraded"
+    assert [d["name"] for d in body["dependencies"]] == ["chromadb", "llm"]
 
 
 def test_every_response_carries_request_id(client):
