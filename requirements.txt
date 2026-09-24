@@ -1,24 +1,32 @@
-# 只列**代码里直接 import** 的包。传递依赖不在这里声明 ——
-# 但反过来，直接 import 就必须显式声明：靠上游带进来是不可靠的，
-# cachetools 就是这么被坑过一次（本机由旧版 streamlit 带入，
-# CI 装到新版 streamlit 后它不再被依赖，于是 import 直接失败）。
-fastapi>=0.110.0
-starlette>=0.37.0
-uvicorn>=0.29.0
-openai>=1.50.0
-langchain>=1.0.0
-langchain-core>=1.0.0
-langchain-openai>=1.0.0
-akshare>=1.14.0
-yfinance>=0.2.40
-chromadb>=1.0.0
-streamlit>=1.38.0
-plotly>=5.18.0
-python-dotenv>=1.0.0
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
-requests>=2.32.0
-pandas>=2.0.0
-numpy>=1.26.0
-cachetools>=6.0.0
-prometheus-client>=0.20.0
+# 两条规则，都是踩过坑之后立的：
+#
+# 1) 只列**代码里直接 import** 的包，且必须显式声明。传递依赖不算数 ——
+#    cachetools 就是靠旧版 streamlit 带进来的，CI 装到新版 streamlit 后它不再被依赖，
+#    于是 `from cachetools import TTLCache` 直接 ImportError。
+#
+# 2) 一律精确钉住（==）。开放区间意味着「最新」随时间移动，于是本地与 CI
+#    解析出不同的版本 —— 已经因此出过两次事故：上面的 cachetools，以及
+#    fastapi/starlette 新版改了 route.path 是否包含 include_router 前缀的行为，
+#    造成「本地绿、CI 红」。钉住之后两边装的是同一套，可复现。
+#
+# 升级方式：改这里的版本 → 本地跑全量测试 → 推上去看 CI。别改回区间。
+fastapi==0.141.1
+starlette==1.7.0
+uvicorn==0.49.0
+openai==2.41.0
+langchain==1.3.4
+langchain-core==1.4.0
+langchain-openai==1.2.2
+akshare==1.18.97
+yfinance==1.4.1
+chromadb==1.5.9
+streamlit==1.58.0
+plotly==6.8.0
+python-dotenv==1.2.2
+pydantic==2.12.5
+pydantic-settings==2.14.1
+requests==2.33.0
+pandas==3.0.3
+numpy==2.4.6
+cachetools==7.1.4
+prometheus-client==0.26.0
