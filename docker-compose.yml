@@ -1,0 +1,57 @@
+services:
+  backend:
+    build: .
+    image: finance-ai-analyst:local
+    env_file:
+      - .env
+    environment:
+      # .env 里通常是 dev；容器里固定按 prod 跑（JSON 日志、关闭热重载）
+      ENV: prod
+      CHROMA_PERSIST_DIR: /app/data/chroma
+      # 宿主机 localhost 上的代理在容器里不可达；必须走代理时改成 host.docker.internal:端口
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+    ports:
+      - "8000:8000"
+    volumes:
+      - finance-data:/app/data
+      # 想让报告直接落到宿主机目录，改用下面这行（Linux 下注意目录属主）：
+      # - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  frontend:
+    image: finance-ai-analyst:local
+    env_file:
+      - .env
+    environment:
+      API_BASE: http://backend:8000/api/v1
+      # 同上：容器内的 localhost 代理不可用，调用 backend 必须直连
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+    ports:
+      - "8501:8501"
+    command:
+      - python
+      - -m
+      - streamlit
+      - run
+      - frontend/app.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  finance-data:
