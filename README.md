@@ -169,7 +169,7 @@ pytest --cov=backend --cov-report=term-missing
 prompt 是核心资产，渲染结果有 golden 基线；有意修改后跑 `python tests/regen_prompts_golden.py`
 重新生成，让 diff 进 code review。
 
-检索质量另有一个小规模评测：`python tests/eval_retrieval.py`。16 条合成报告、16 条可回答问题、
+检索质量另有一个小规模评测：`python tests/eval_retrieval.py`。16 条合成的报告片段、16 条可回答问题、
 6 条无关问题，用真实 embedding 算 hit@1/3/5、MRR，并输出相关/无关问题的 top1 分数分布。
 当前 hit@1/3/5 均为 1.00，相关 top1 分数 0.638–0.787，无关 0.416–0.525。样本是合成的、偏容易，
 这个 1.00 只说明链路通，不代表生产效果；也正因为样本小，没有据此加阈值。
@@ -218,7 +218,7 @@ tests/                   unit（纯逻辑）/ integration（跨模块协作）/ 
 - **问答只基于已存报告**：没分析过的股票不在检索范围；问题超出报告覆盖范围时，
   prompt 要求模型明确说「现有报告未覆盖」，而不是补全常识。
 - **检索评测只有 16 条合成样本**：hit@k 只能当链路自检，不能代替真实标注集；
-  生成侧也没有自动 groundedness 评估，只人工看过引用。
+  生成侧也没有自动 groundedness 评估，只能靠人工抽查引用。
 - **没有鉴权体系**，仅适合本地 / 内网部署。`/metrics` 能反映流量与 token 用量，
   公网暴露前需要加访问控制。
 
