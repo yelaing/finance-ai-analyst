@@ -12,6 +12,7 @@ BUSINESS_ENDPOINTS = {
     ("/api/v1/analyze", "post"): {"200", "400", "422", "500"},
     ("/api/v1/history", "get"): {"200", "422", "500"},
     ("/api/v1/search", "get"): {"200", "422", "500"},
+    ("/api/v1/ask", "post"): {"200", "422", "500"},
     ("/api/v1/export/{symbol}", "get"): {"200", "404", "422", "500"},
 }
 
@@ -49,7 +50,15 @@ def test_error_response_model_has_description_and_example(spec):
 
 
 @pytest.mark.parametrize(
-    "name", ["AnalysisRequest", "HistoryResponse", "SearchResponse", "AnalysisReport"]
+    "name",
+    [
+        "AnalysisRequest",
+        "HistoryResponse",
+        "SearchResponse",
+        "AskRequest",
+        "AskResponse",
+        "AnalysisReport",
+    ],
 )
 def test_request_and_response_models_carry_examples(spec, name):
     model = spec["components"]["schemas"][name]
@@ -93,7 +102,7 @@ def test_status_fields_are_enumerated(spec):
 
 def test_tags_have_descriptions(spec):
     tags = {tag["name"]: tag["description"] for tag in spec.get("tags", [])}
-    assert set(tags) == {"analysis", "history", "system"}
+    assert set(tags) == {"analysis", "history", "qa", "system"}
     assert all(description for description in tags.values())
 
 
@@ -121,7 +130,15 @@ def test_metrics_stays_out_of_the_business_api(spec):
 
 
 @pytest.mark.parametrize(
-    "name", ["AnalysisRequest", "AnalysisReport", "HistoryResponse", "SearchResponse"]
+    "name",
+    [
+        "AnalysisRequest",
+        "AnalysisReport",
+        "HistoryResponse",
+        "SearchResponse",
+        "AskRequest",
+        "AskResponse",
+    ],
 )
 def test_declared_examples_are_schema_valid(spec, name):
     """示例必须能通过模型校验。

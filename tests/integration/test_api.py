@@ -6,6 +6,7 @@ from datetime import datetime
 import pytest
 
 import backend.api.routes as routes
+import backend.pipeline.rag as rag
 from backend.core.errors import InvalidSymbolError, UnsupportedMarketError
 from tests.conftest import build_report
 
@@ -257,6 +258,97 @@ def test_search_symbol_filter_yields_nothing_for_unknown(client, store):
     store.save(build_report())
     body = client.get("/api/v1/search", params={"q": "基本面", "symbol": "NOPE"}).json()
     assert body["total"] == 0
+
+
+# ---------- /api/v1/ask（RAG） ----------
+
+
+class RecordingChain:
+    def __init__(self, answer: str = "根据报告 [1]，营收稳健。"):
+        self.answer = answer
+        self.payloads: list[dict] = []
+
+    def invoke(self, payload, **kwargs):
+        self.payloads.append(payload)
+        return self.answer
+
+
+class BoomChain:
+    def invoke(self, payload, **kwargs):
+        raise RuntimeError("模型超时")
+
+
+def test_ask_answers_from_retrieved_reports(client, store, monkeypatch):
+    store.save(build_report(summary="新能源汽车与动力电池"))
+    chain = RecordingChain("根据报告 [1]，营收稳健。")
+    monkeypatch.setattr(rag, "qa_chain", chain)
+
+    resp = client.post("/api/v1/ask", json={"question": "新能源汽车业务怎么样？", "limit": 3})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["answer"] == "根据报告 [1]，营收稳健。"
+    assert len(body["citations"]) == 1
+    citation = body["citations"][0]
+    assert set(citation) == {"id", "symbol", "name", "timestamp", "score", "text"}
+    assert citation["symbol"] == "600519"
+    assert "新能源汽车与动力电池" in chain.payloads[0]["context"]
+    assert chain.payloads[0]["question"] == "新能源汽车业务怎么样？"
+
+
+def test_ask_without_reports_returns_guidance_and_skips_llm(client, monkeypatch):
+    chain = RecordingChain()
+    monkeypatch.setattr(rag, "qa_chain", chain)
+
+    body = client.post("/api/v1/ask", json={"question": "随便问问"}).json()
+
+    assert body["citations"] == []
+    assert "没有找到" in body["answer"]
+    assert chain.payloads == []
+
+
+def test_ask_respects_symbol_filter(client, store, monkeypatch):
+    store.save(build_report())
+    store.save(
+        build_report(
+            symbol="002594",
+            name="比亚迪",
+            summary="新能源汽车销量增长",
+            timestamp=datetime(2026, 9, 25, 9, 0, 0),
+        )
+    )
+    monkeypatch.setattr(rag, "qa_chain", RecordingChain())
+
+    body = client.post("/api/v1/ask", json={"question": "新能源汽车", "symbol": "002594"}).json()
+
+    assert {citation["symbol"] for citation in body["citations"]} == {"002594"}
+
+
+@pytest.mark.parametrize(
+    ("payload", "field"),
+    [
+        ({}, "question"),
+        ({"question": ""}, "question"),
+        ({"question": "x", "limit": 0}, "limit"),
+        ({"question": "x", "limit": 21}, "limit"),
+    ],
+)
+def test_ask_validation_errors(client, payload, field):
+    body = client.post("/api/v1/ask", json=payload).json()
+    assert body["code"] == "VALIDATION_ERROR"
+    assert field in body["detail"]
+
+
+def test_ask_llm_failure_returns_generic_500(client, store, monkeypatch):
+    store.save(build_report())
+    monkeypatch.setattr(rag, "qa_chain", BoomChain())
+
+    resp = client.post("/api/v1/ask", json={"question": "基本面怎么样？"})
+
+    assert resp.status_code == 500
+    assert resp.json()["code"] == "INTERNAL_ERROR"
+    assert resp.json()["detail"] == "问答失败，请稍后重试"
+    assert "模型超时" not in resp.text
 
 
 # ---------- /api/v1/export ----------

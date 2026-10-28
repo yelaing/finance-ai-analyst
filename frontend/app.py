@@ -83,6 +83,36 @@ if st.sidebar.button("查看历史", use_container_width=True):
             st.sidebar.error("无法连接到后端")
 
 st.sidebar.divider()
+
+question = st.sidebar.text_area(
+    "向历史报告提问",
+    placeholder="如：哪些报告提示了高负债风险？",
+    height=80,
+)
+if st.sidebar.button("提问", use_container_width=True):
+    if not question.strip():
+        st.sidebar.warning("请输入问题")
+    else:
+        with st.spinner("检索历史报告并生成回答..."):
+            try:
+                resp = requests.post(
+                    f"{API_BASE}/ask",
+                    json={
+                        "question": question.strip(),
+                        "symbol": symbol.strip() or None,
+                    },
+                    timeout=60,
+                )
+                if resp.status_code == 200:
+                    st.session_state.qa = resp.json()
+                else:
+                    st.sidebar.error(f"提问失败: {resp.status_code} {resp.text}")
+            except requests.exceptions.ConnectionError:
+                st.sidebar.error("无法连接到后端")
+            except Exception as e:
+                st.sidebar.error(f"提问失败: {e}")
+
+st.sidebar.divider()
 st.sidebar.caption("Data from akshare & Yahoo Finance")
 
 # ---- landing page ----
@@ -128,3 +158,20 @@ if not st.session_state.has_report:
         '<p class="footer-hint">A股（600519）&nbsp;·&nbsp;美股（AAPL、NVDA）— 左侧输入代码开始</p>',
         unsafe_allow_html=True,
     )
+
+# ---- RAG 问答 ----
+if st.session_state.get("qa"):
+    qa = st.session_state.qa
+    st.divider()
+    st.subheader("报告问答")
+    st.markdown(qa["answer"])
+
+    citations = qa.get("citations") or []
+    if citations:
+        with st.expander(f"引用片段（{len(citations)}）"):
+            for index, citation in enumerate(citations, 1):
+                st.markdown(
+                    f"**[{index}] {citation['name']}（{citation['symbol']}）** "
+                    f"· {citation['timestamp'][:10]} · 相似度 {citation['score']:.2f}"
+                )
+                st.caption(citation["text"])

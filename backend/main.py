@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 TAGS_METADATA = [
     {"name": "analysis", "description": "跑四阶段分析流水线，产出结构化报告"},
     {"name": "history", "description": "历史报告：按代码精确检索、语义检索、导出 Markdown"},
+    {"name": "qa", "description": "检索增强问答：把历史报告片段作为上下文，带引用作答"},
     {"name": "system", "description": "运维接口：存活/就绪探针。指标在 /metrics（不进本文档）"},
 ]
 

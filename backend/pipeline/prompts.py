@@ -215,3 +215,34 @@ CROSS_VALIDATION_PROMPT = ChatPromptTemplate.from_messages(
         ),
     ]
 )
+
+# --- RAG 问答 prompt ---
+
+RAG_QA_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "你是一名金融研究助理。你只能依据给定的历史分析报告片段回答问题，"
+            "不得引入片段之外的事实。",
+        ),
+        (
+            "human",
+            """请基于以下历史分析报告片段回答问题。
+
+## 参考资料
+{context}
+
+## 问题
+{question}
+
+## 要求
+1. 只使用参考资料中的信息；资料不足时明确说明「现有报告未覆盖」，不要推测
+2. 引用资料时在句末标注对应编号，如 [1][2]
+3. 回答控制在 200 字以内，先给结论再给依据
+4. 不要给出投资建议
+
+直接输出回答正文，不要 JSON，不要重复问题。
+""",
+        ),
+    ]
+)

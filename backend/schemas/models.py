@@ -199,3 +199,56 @@ class SearchResponse(BaseModel):
             ]
         }
     )
+
+
+class AskRequest(BaseModel):
+    question: str = Field(
+        min_length=1,
+        max_length=500,
+        description="自然语言问题，如「贵州茅台的营收增速怎么样？」",
+        examples=["高风险的消费类股票有哪些？"],
+    )
+    symbol: str | None = Field(
+        default=None,
+        description="限定在某支股票的历史报告内检索；不传则跨股票",
+        examples=["600519"],
+    )
+    limit: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="参与回答的报告片段数，越大上下文越全但 token 用量越高",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"question": "高风险的消费类股票有哪些？", "symbol": None, "limit": 5}]
+        }
+    )
+
+
+class AskResponse(BaseModel):
+    answer: str = Field(description="模型基于检索片段的回答，引用处带 [n] 编号")
+    citations: list[SearchHit] = Field(
+        description="参与回答的报告片段，编号与 answer 中的 [n] 引用对应"
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "answer": "报告 [1] 显示贵州茅台基本面稳健，但增速放缓。",
+                    "citations": [
+                        {
+                            "id": "600519_20260924_100000",
+                            "symbol": "600519",
+                            "name": "贵州茅台",
+                            "timestamp": "2026-09-24T10:00:00",
+                            "score": 0.8123,
+                            "text": "贵州茅台（600519） 基本面：营收稳健，现金流充沛。",
+                        }
+                    ],
+                }
+            ]
+        }
+    )

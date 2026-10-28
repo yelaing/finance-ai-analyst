@@ -35,6 +35,7 @@ TEMPLATES = {
         "bear_thesis",
     ],
     "CROSS_VALIDATION_PROMPT": ["fundamental_summary", "sentiment_summary"],
+    "RAG_QA_PROMPT": ["question", "context"],
 }
 
 # 注意不能放在 tests/data/：.gitignore 里的 `data/` 会把任意层级同名目录一起忽略，
@@ -101,6 +102,7 @@ def test_cross_validation_has_no_system_message():
         ("BEAR_ANALYST_PROMPT", "看空"),
         ("ARBITRATOR_PROMPT", "独立风控仲裁官"),
         ("SENTIMENT_ANALYSIS_PROMPT", "-1.0 到 1.0"),
+        ("RAG_QA_PROMPT", "只使用参考资料中的信息"),
     ],
 )
 def test_key_instructions_survive(name, needle):

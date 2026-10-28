@@ -10,11 +10,14 @@ from backend.core.errors import (
     error_responses,
 )
 from backend.pipeline.analyzer import run_analysis
+from backend.pipeline.rag import answer_question
 from backend.pipeline.report_export import render_markdown
 from backend.schemas.models import (
     AnalysisReport,
     AnalysisRequest,
     AnalysisResponse,
+    AskRequest,
+    AskResponse,
     HistoryResponse,
     SearchResponse,
 )
@@ -99,6 +102,30 @@ def search(
     store = get_store()
     items = store.search_semantic(q, n=limit, symbol=symbol)
     return SearchResponse(items=items, total=len(items))
+
+
+@router.post(
+    "/ask",
+    response_model=AskResponse,
+    tags=["qa"],
+    summary="基于历史报告回答问题（RAG）",
+    description="先把问题向量化，在历史报告里检索最相关的 `limit` 条片段，"
+    "再把片段拼进 prompt 让模型作答；`citations` 与回答里的 `[n]` 编号一一对应。\n\n"
+    "检索不到任何报告时**不调用 LLM**，直接返回引导文案与空 `citations` —— "
+    "没有资料时让模型自由发挥只会产生幻觉。",
+    responses=error_responses(422, 500),
+)
+def ask(req: AskRequest) -> AskResponse:
+    store = get_store()
+
+    try:
+        hits = store.search_semantic(req.question, n=req.limit, symbol=req.symbol)
+        return AskResponse(answer=answer_question(req.question, hits), citations=hits)
+    except AppError:
+        raise
+    except Exception as e:
+        # 真实异常只进日志，响应里不暴露内部细节
+        raise AppError("问答失败，请稍后重试") from e
 
 
 @router.get(
