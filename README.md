@@ -3,7 +3,8 @@
 上市公司财报 + 舆情 + 多空辩论的自动化分析服务。
 
 输入 A 股或美股代码，自动拉取财报与近期动态，跑四阶段 LLM 流水线，输出结构化报告；
-报告落盘到 JSON，同时向量化进 ChromaDB，可用自然语言跨股票检索历史。
+报告落盘到 JSON，同时向量化进 ChromaDB，可用自然语言跨股票检索历史，
+也能基于检索到的报告片段做带引用的问答（RAG）。
 
 ## 功能
 
@@ -13,6 +14,8 @@
 - **多空辩论** — 多头 / 空头分析师并行论证，各自给出置信度
 - **风控仲裁** — 独立第三方视角对比多空分歧，标注风险等级并给出综合结论
 - **历史与语义检索** — 报告持久化；除按代码精确查找外，支持自然语言跨股票检索
+- **报告问答（RAG）** — 检索历史报告片段作为上下文，让模型带 `[n]` 引用作答；
+  检索不到任何报告时不调用 LLM，直接返回引导文案
 - **报告导出** — 一键导出 Markdown
 
 ## 架构
@@ -25,6 +28,9 @@ flowchart TB
     PIPE --> LLM["LLM 提供商<br/>OpenAI 兼容接口"]
     PIPE --> SRC["数据源<br/>akshare / yfinance（含主备链）"]
     PIPE --> CACHE["进程内 TTL 缓存<br/>数据源 / LLM 阶段 / 查询向量"]
+    ROUTES --> QA["RAG 问答<br/>检索 top-k → 拼上下文 → 带引用作答"]
+    QA --> CHROMA
+    QA --> LLM
     ROUTES --> JSON[("reports.json<br/>权威源")]
     ROUTES --> CHROMA[("ChromaDB<br/>语义索引")]
     JSON -.->|索引可随时重建| CHROMA
@@ -42,6 +48,9 @@ Step 4  风控仲裁        →  对比多空分歧，识别 2-4 个风险并给
 每个 LLM 阶段都是一条 LCEL 链（`ChatPromptTemplate | ChatOpenAI | JsonOutputParser`），
 Step 3 的两路用 `RunnableParallel` 并行执行。
 
+问答走另一条短链路：问题向量化后从 ChromaDB 取 top-k 片段，按 `[1][2]` 编号拼进
+`RAG_QA_PROMPT`，一次 LLM 调用返回带引用的答案；响应里的 `citations` 与编号一一对应。
+
 ## 技术选型与理由
 
 **LangChain LCEL 只用在分析流水线上。** 四个阶段是同一形状（模板 → 模型 → JSON 解析），
@@ -55,6 +64,10 @@ LCEL 让每条链能独立组装与替换，多空辩论天然对应 `RunnablePa
 
 **JSON 是权威源，ChromaDB 是可重建的派生索引。** 报告全文与精确检索走 JSON 文件；
 向量库只存关键文本与元数据。这样嵌入失败不会丢报告，换 embedding 模型也能从 JSON 一键重建。
+
+**RAG 的「检索不到」不交给模型判断。** 没有命中任何报告时直接返回引导文案、不调用 LLM ——
+没有资料时让模型自由发挥，得到的只会是听起来合理的幻觉。有命中时上下文按 `[1][2]` 编号，
+回答里的引用与 `citations` 数组一一对应，用户可以逐条核对依据。
 
 **缓存用进程内 TTL + LRU，没有引入 Redis。** 单 worker 下内存缓存已足够
 （实测同一支股票二次分析 39s → 1.6s，快 96%）。模板留好了换后端的接口，
@@ -91,6 +104,19 @@ python -m streamlit run frontend/app.py --server.port 8501
 配置项全部走环境变量（见 `.env.example`）：LLM 与 embedding 模型、监听地址、CORS、
 超时、缓存 TTL、代理、日志格式等。
 
+## Docker 部署
+
+```bash
+cp .env.example .env   # 填 LLM_API_KEY
+docker compose up --build
+```
+
+后端在 `http://localhost:8000`，前端在 `http://localhost:8501`。镜像以非 root 运行，
+容器内固定 `ENV=prod`（JSON 日志、关闭热重载），数据落在 `finance-data` 命名卷；
+想把报告直接落到宿主机目录，把 compose 里 `./data:/app/data` 那行注释打开。
+容器内不能沿用宿主机 `localhost` 上的代理，compose 已把代理置空；
+确需走代理时改成 `host.docker.internal:端口`。
+
 ## API
 
 | 方法 | 路径 | 说明 |
@@ -98,6 +124,7 @@ python -m streamlit run frontend/app.py --server.port 8501
 | POST | `/api/v1/analyze` | 跑四阶段流水线；当天已分析过的股票直接返回缓存结果 |
 | GET | `/api/v1/history` | 按股票代码精确检索历史记录 |
 | GET | `/api/v1/search` | 语义检索历史报告，可跨股票、可限定 symbol |
+| POST | `/api/v1/ask` | 基于历史报告做 RAG 问答，返回答案与引用片段 |
 | GET | `/api/v1/export/{symbol}` | 导出最新报告为 Markdown |
 | GET | `/health` | 存活探针：始终 200，附带各依赖状态 |
 | GET | `/health/ready` | 就绪探针：依赖不可用返回 503 |
@@ -111,6 +138,12 @@ python -m streamlit run frontend/app.py --server.port 8501
 ```
 
 每个请求的响应都带 `X-Request-ID`（调用方传入则沿用），可用于串联日志。
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "哪些报告提示了高负债风险？", "limit": 5}'
+```
 
 ## 运维
 
@@ -130,11 +163,16 @@ pytest                      # 自动带覆盖率，门槛 80%
 pytest --cov=backend --cov-report=term-missing
 ```
 
-371 个用例，覆盖率 99.6%。只替换**外部边界**（LLM 链、embedding、akshare/yfinance），
+396 个用例，覆盖率 99.5%。pytest 只替换**外部边界**（LLM 链、embedding、akshare/yfinance），
 路由、中间件、异常处理、四阶段编排、双写与差集自愈逻辑全部真实执行。
 
 prompt 是核心资产，渲染结果有 golden 基线；有意修改后跑 `python tests/regen_prompts_golden.py`
 重新生成，让 diff 进 code review。
+
+检索质量另有一个小规模评测：`python tests/eval_retrieval.py`。16 条合成报告、16 条可回答问题、
+6 条无关问题，用真实 embedding 算 hit@1/3/5、MRR，并输出相关/无关问题的 top1 分数分布。
+当前 hit@1/3/5 均为 1.00，相关 top1 分数 0.638–0.787，无关 0.416–0.525。样本是合成的、偏容易，
+这个 1.00 只说明链路通，不代表生产效果；也正因为样本小，没有据此加阈值。
 
 CI（GitHub Actions）在 push / PR 时依次跑 ruff check、ruff format 检查、mypy、pytest 并上传覆盖率报告。
 
@@ -158,6 +196,7 @@ backend/
 │   └── net.py           启动时一次性应用代理环境变量
 ├── pipeline/
 │   ├── analyzer.py      LCEL 链组装与四阶段编排
+│   ├── rag.py           检索历史报告并带引用作答
 │   ├── prompts.py       ChatPromptTemplate
 │   ├── data_fetcher.py  数据源（含主备链）与抓取缓存
 │   ├── technical.py     技术指标（pandas）
@@ -167,7 +206,7 @@ backend/
     ├── chroma_store.py  JSON 权威源 + ChromaDB 语义索引
     └── embeddings.py    向量化（分批 + 退避）
 frontend/                Streamlit 看板
-tests/                   unit（纯逻辑）/ integration（跨模块协作）
+tests/                   unit（纯逻辑）/ integration（跨模块协作）/ eval_retrieval.py（检索评测）
 ```
 
 ## 已知局限
@@ -176,6 +215,10 @@ tests/                   unit（纯逻辑）/ integration（跨模块协作）
   东方财富新闻接口在 akshare 1.18.97 上有 pyarrow 解析 bug。报告里的 `sources` 会显示实际用的是主源还是备源。
 - **巨潮公告不保证每天都有**：公司没发公告的日子，舆情阶段会跳过（`sentiment` 为缺失）。这是数据的真实状态。
 - **一次分析约 45 秒**（5 次 LLM 调用）；命中缓存时约 1.6 秒。
+- **问答只基于已存报告**：没分析过的股票不在检索范围；问题超出报告覆盖范围时，
+  prompt 要求模型明确说「现有报告未覆盖」，而不是补全常识。
+- **检索评测只有 16 条合成样本**：hit@k 只能当链路自检，不能代替真实标注集；
+  生成侧也没有自动 groundedness 评估，只人工看过引用。
 - **没有鉴权体系**，仅适合本地 / 内网部署。`/metrics` 能反映流量与 token 用量，
   公网暴露前需要加访问控制。
 
