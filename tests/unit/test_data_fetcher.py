@@ -264,6 +264,55 @@ def test_both_sources_failing_degrades(monkeypatch, caplog, kwargs, expect_text)
 # ---------- 源成功但返回空：是真实状态，不是降级 ----------
 
 
+def test_financial_abstract_includes_three_year_key_fields(monkeypatch):
+    """近三年关键字段要进财务文本，且报告期取「报告期」列而不是行号。"""
+    module = fake_akshare()
+    module.stock_financial_abstract_ths = lambda symbol, indicator: pd.DataFrame(
+        {
+            "报告期": [
+                "2019-12-31",
+                "2023-12-31",
+                "2024-12-31",
+                "2025-12-31",
+                "2026-06-30",
+            ],
+            "营业总收入": ["100亿", "200亿", "300亿", "400亿", "150亿"],
+            "营业总收入同比增长率": ["1%", "2%", "3%", "4%", "5%"],
+            "净利润": ["10亿", "20亿", "30亿", "40亿", "15亿"],
+            "净利润同比增长率": ["1%", "2%", "3%", "4%", "5%"],
+            "净资产收益率": ["5%", "10%", "15%", "20%", "8%"],
+            "销售毛利率": ["20%", "30%", "40%", "50%", "45%"],
+            "销售净利率": ["10%", "15%", "20%", "25%", "12%"],
+            "资产负债率": ["40%", "50%", "60%", "70%", "55%"],
+            "每股经营现金流": ["1", "2", "3", "4", "2.5"],
+            "流动比率": ["1.1", "1.2", "1.3", "1.4", "1.35"],
+        }
+    )
+    monkeypatch.setitem(sys.modules, "akshare", module)
+
+    result = df._financial_abstract("600519")
+    text = "\n".join(result.lines)
+    history = "\n".join(result.history_lines)
+
+    assert "报告期：2026-06-30" in text
+    assert "报告期：4" not in text  # 不能把 DataFrame 行号当报告期
+    assert "--- 近三年关键财务 ---" in text
+    assert "报告期 | 营业总收入 | 营业总收入同比增长率" in history
+    assert "资产负债率" in history
+    for period in ("2023-12-31", "2024-12-31", "2025-12-31", "2026-06-30"):
+        assert period in history
+    assert "2019-12-31" not in history
+
+
+def test_fetch_a_share_exposes_financial_history_for_rag(monkeypatch):
+    monkeypatch.setitem(sys.modules, "akshare", fake_akshare())
+
+    result = df._fetch_a_share("600519")
+
+    assert "报告期 |" in result.financial_history_text
+    assert "2026-03-31" in result.financial_history_text
+
+
 def test_empty_financial_result_still_records_source(monkeypatch):
     monkeypatch.setitem(sys.modules, "akshare", fake_akshare(financial_empty=True))
 
@@ -536,3 +585,9 @@ def test_fetch_us_logs_news_failure_and_falls_back(monkeypatch, proxyless, caplo
 
     assert "美股新闻获取失败" in caplog.text
     assert result.news_text == "[新闻获取失败]"
+
+
+def test_cell_treats_boolean_placeholder_as_missing():
+    """同花顺对银行/保险的流动比率会返回布尔 False，不能当数值写进报告。"""
+    assert df._cell(False) == "N/A"
+    assert df._cell(True) == "N/A"

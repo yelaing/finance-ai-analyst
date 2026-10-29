@@ -25,6 +25,12 @@ def render_markdown(report: AnalysisReport) -> str:
     lines.append(f"**基本面总结**：{report.fundamental_summary}")
     lines.append("")
 
+    if report.financial_history:
+        lines.append("**近三年关键财务**")
+        lines.append("")
+        lines.append(report.financial_history)
+        lines.append("")
+
     # Technical
     if report.technical:
         lines.append("---")

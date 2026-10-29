@@ -52,6 +52,15 @@ def test_metric_without_yoy_falls_back_to_dash(report_factory):
     assert "| ROE | 30% | - | — neutral |" in render_markdown(report)
 
 
+def test_financial_history_is_rendered(report_factory):
+    report = report_factory().model_copy(
+        update={"financial_history": "报告期 | 净资产收益率\n2024-12-31 | 32.53%"}
+    )
+    md = render_markdown(report)
+    assert "**近三年关键财务**" in md
+    assert "2024-12-31 | 32.53%" in md
+
+
 def test_technical_section_is_omitted_when_absent(report_factory):
     assert "## 二、技术面分析" not in render_markdown(report_factory())
 

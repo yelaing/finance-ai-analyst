@@ -273,6 +273,7 @@ def _run_pipeline(
         timestamp=datetime.now(),
         fundamental_metrics=metrics,
         fundamental_summary=fund_summary,
+        financial_history=data.financial_history_text,
         sentiment=sentiment_summary,
         risks=risks,
         conclusion=arb_json["conclusion"],

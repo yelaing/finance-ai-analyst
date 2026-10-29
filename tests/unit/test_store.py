@@ -72,6 +72,25 @@ def test_build_doc_includes_all_field_groups():
     assert "多空分歧：分歧在于增速是否结构性下移。" in doc
 
 
+def test_build_doc_includes_financial_history():
+    full = build_report().model_dump(mode="json")
+    full["financial_history"] = "报告期 | 净资产收益率\n2024-12-31 | 32.53%"
+    record = {
+        "id": "x",
+        "symbol": "600519",
+        "name": "贵州茅台",
+        "timestamp": "2026-09-24T10:00:00",
+        "fundamental_summary": "营收稳健",
+        "conclusion": "综合结论在此",
+        "full_report": full,
+    }
+
+    doc = cs._build_doc(record)
+
+    assert "近三年财务：" in doc
+    assert "2024-12-31 | 32.53%" in doc
+
+
 def test_build_doc_skips_absent_field_groups():
     """四阶段流水线之前的旧记录没有 technical / 多空 / 舆情，不能崩。"""
     record = {

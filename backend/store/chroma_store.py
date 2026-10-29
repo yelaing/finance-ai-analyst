@@ -36,6 +36,12 @@ def _build_doc(record: dict) -> str:
     if record.get("conclusion"):
         lines.append(f"综合结论：{record['conclusion']}")
 
+    # 近三年关键财务单独进索引：事实型问题需要精确数值与报告期，
+    # 只靠 LLM 转述的 summary 会丢字段。
+    history = full.get("financial_history")
+    if history:
+        lines.append(f"近三年财务：\n{history}")
+
     risks = full.get("risks") or []
     if risks:
         lines.append(
@@ -61,6 +67,22 @@ def _meta(record: dict) -> dict:
         "symbol": record["symbol"],
         "name": record.get("name") or record["symbol"],
         "timestamp": record["timestamp"],
+    }
+
+
+def build_record(report: AnalysisReport) -> dict:
+    """把一份报告转成落盘记录。评测采集脚本复用它，保证快照与生产写入同形。"""
+    doc_id = f"{report.symbol}_{report.timestamp.strftime('%Y%m%d_%H%M%S')}"
+    return {
+        "id": doc_id,
+        "symbol": report.symbol,
+        "name": report.name,
+        "timestamp": report.timestamp.isoformat(),
+        "sentiment_score": report.sentiment.score if report.sentiment else None,
+        "sources": report.sources,
+        "fundamental_summary": report.fundamental_summary,
+        "conclusion": report.conclusion,
+        "full_report": report.model_dump(mode="json"),
     }
 
 
@@ -135,18 +157,8 @@ class ReportStore:
     # ---------- 对外接口 ----------
 
     def save(self, report: AnalysisReport) -> str:
-        doc_id = f"{report.symbol}_{report.timestamp.strftime('%Y%m%d_%H%M%S')}"
-        record = {
-            "id": doc_id,
-            "symbol": report.symbol,
-            "name": report.name,
-            "timestamp": report.timestamp.isoformat(),
-            "sentiment_score": report.sentiment.score if report.sentiment else None,
-            "sources": report.sources,
-            "fundamental_summary": report.fundamental_summary,
-            "conclusion": report.conclusion,
-            "full_report": report.model_dump(mode="json"),
-        }
+        record = build_record(report)
+        doc_id = record["id"]
         with _lock:
             self._records.append(record)
             self._dump()

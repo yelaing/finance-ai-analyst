@@ -81,6 +81,15 @@ def pipeline(monkeypatch):
     return calls, state
 
 
+def test_pipeline_carries_financial_history(pipeline):
+    _, state = pipeline
+    state["fetch"].financial_history_text = "报告期 | 净资产收益率\n2024-12-31 | 32.53%"
+
+    report = analyzer.run_analysis("600519")
+
+    assert report.financial_history == state["fetch"].financial_history_text
+
+
 def test_full_pipeline_assembles_complete_report(pipeline):
     _, _ = pipeline
     report = analyzer.run_analysis("600519")

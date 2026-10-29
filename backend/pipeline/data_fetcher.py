@@ -36,6 +36,9 @@ class FetchResult:
     financial_text: str
     news_text: str
     sources: list[str] = field(default_factory=list)
+    # 近三年关键财务的紧凑表格。单独留一份给报告与向量索引，
+    # 避免 RAG 只能看到 LLM 转述后的 summary。
+    financial_history_text: str = ""
 
 
 @dataclass
@@ -49,6 +52,7 @@ class _QueryResult:
     source: str | None
     lines: list[str] = field(default_factory=list)
     name: str | None = None
+    history_lines: list[str] = field(default_factory=list)
 
 
 def _is_healthy(market: str, result: FetchResult) -> bool:
@@ -125,6 +129,66 @@ def _company_overview(symbol: str) -> _QueryResult:
         return _QueryResult(None)
 
 
+# 近三年表格只保留做事实核对和跨公司对比会用到的字段。
+# 原来最新摘要取 columns[:15]，资产负债率等列被截掉，报告里只能写 N/A。
+_HISTORY_COLUMNS = (
+    "营业总收入",
+    "营业总收入同比增长率",
+    "净利润",
+    "净利润同比增长率",
+    "净资产收益率",
+    "销售毛利率",
+    "销售净利率",
+    "资产负债率",
+    "每股经营现金流",
+    "流动比率",
+)
+
+
+def _cell(value: object) -> str:
+    """把同花顺偶尔返回的 nan / None / 空串 / 布尔占位统一成 N/A，避免脏值进 prompt。
+
+    银行、保险的流动比率常返回布尔 False（该指标对它们不适用），
+    直接写进报告会变成「流动比率 = False」。
+    """
+    text = "" if value is None else str(value).strip()
+    return text if text not in ("", "nan", "None", "<NA>", "False", "True") else "N/A"
+
+
+def _periods(fin_df) -> list[str]:
+    """报告期优先取「报告期」列；老版本/测试数据没有该列时退回 index。"""
+    if "报告期" in fin_df.columns:
+        return [_cell(value) for value in fin_df["报告期"]]
+    return [_cell(value) for value in fin_df.index]
+
+
+def _financial_history_lines(fin_df) -> list[str]:
+    """近三年年报 + 最新一期压成表格，供 prompt、报告和向量索引共用。"""
+    if fin_df is None or fin_df.empty:
+        return []
+
+    periods = _periods(fin_df)
+    annual = [index for index, period in enumerate(periods) if period.endswith("12-31")]
+    selected = annual[-3:]
+    latest = len(periods) - 1
+    if latest not in selected:
+        selected.append(latest)
+    selected = sorted(set(selected))
+    if not selected:
+        return []
+
+    columns = [column for column in _HISTORY_COLUMNS if column in fin_df.columns]
+    if not columns:
+        return []
+
+    lines = ["--- 近三年关键财务 ---", " | ".join(["报告期", *columns])]
+    for index in selected:
+        row = fin_df.iloc[index]
+        values = [_cell(row.get(column)) for column in columns]
+        lines.append(" | ".join([periods[index], *values]))
+    return lines
+
+
 def _financial_abstract(symbol: str) -> _QueryResult:
     """同花顺财务摘要。调用成功就记源名，即使这一期没有数据。"""
     try:
@@ -138,13 +202,22 @@ def _financial_abstract(symbol: str) -> _QueryResult:
     if fin_df is None or fin_df.empty:
         return _QueryResult("同花顺财务摘要", [])
 
+    periods = _periods(fin_df)
     latest = fin_df.iloc[-1]
-    lines = ["\n--- 最新财务摘要 ---", f"报告期：{fin_df.index[-1]}"]
+    lines = ["\n--- 最新财务摘要 ---", f"报告期：{periods[-1]}"]
     for col in fin_df.columns[:15]:
-        val = latest.get(col)
-        if val is not None and str(val) not in ("nan", "None", ""):
+        if col == "报告期":
+            continue
+        val = _cell(latest.get(col))
+        if val != "N/A":
             lines.append(f"{col}：{val}")
-    return _QueryResult("同花顺财务摘要", lines)
+
+    history_lines = _financial_history_lines(fin_df)
+    return _QueryResult(
+        "同花顺财务摘要",
+        lines + history_lines,
+        history_lines=history_lines,
+    )
 
 
 def _strip_company_prefix(title: str, display_name: str) -> str:
@@ -230,6 +303,7 @@ def _fetch_a_share(symbol: str) -> FetchResult:
         financial_text="\n".join(financial_parts) or "暂无财务数据",
         news_text="\n".join(news_parts) or "暂无近期新闻",
         sources=sources,
+        financial_history_text="\n".join(financials.history_lines),
     )
 
 

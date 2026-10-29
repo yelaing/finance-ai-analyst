@@ -82,6 +82,7 @@ _REPORT_EXAMPLE: dict[str, Any] = {
         }
     ],
     "fundamental_summary": "盈利质量优异、现金流充沛，但增速回落已成事实。",
+    "financial_history": "报告期 | 净资产收益率 | 销售毛利率\n2024-12-31 | 32.53% | 91.18%",
     "sentiment": {"overall": "neutral", "score": 0.0, "key_drivers": ["渠道压力"]},
     "risks": [{"category": "增长可持续性", "level": "high", "detail": "净利增速仅 1.47%"}],
     "conclusion": "基本面依然稳健但增长斜率放缓，属「健康但失速」状态。",
@@ -115,6 +116,7 @@ class AnalysisReport(BaseModel):
     timestamp: datetime
     fundamental_metrics: list[MetricItem]
     fundamental_summary: str
+    financial_history: str = ""
     sentiment: SentimentSummary | None = None
     risks: list[RiskItem]
     conclusion: str
