@@ -27,3 +27,12 @@ coverage.xml
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# 评测运行产物：报告与数据集要提交，缓存和中间日志可重跑
+tests/eval_collect.log
+tests/eval_answers.json
+tests/eval_judge.json
+tests/fixtures/eval_answers.json
+tests/fixtures/eval_judge.json
+tests/eval_retrieval_report.md
+tests/eval_generation_report.md

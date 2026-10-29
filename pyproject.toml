@@ -36,8 +36,11 @@ disallow_incomplete_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-q --strict-markers"
-markers = ["integration: 跨多个模块协作的集成测试"]
+addopts = "-q --strict-markers -m 'not eval'"
+markers = [
+    "integration: 跨多个模块协作的集成测试",
+    "eval: 真实数据评测，会调用 LLM 与 embedding，默认不跑",
+]
 
 [tool.coverage.run]
 source = ["backend"]
