@@ -90,7 +90,8 @@ pip install -r requirements.txt
 
 # 2. 配置
 cp .env.example .env
-# 编辑 .env 填入 LLM_API_KEY；支持任何 OpenAI 兼容接口（阿里云百炼 / DeepSeek / OpenAI …）
+# 编辑 .env 填入 LLM_API_KEY；LLM 与 embedding 共用 base_url/api_key，
+# 需要该服务同时提供 chat 与 /embeddings（当前用阿里云百炼；DeepSeek 没有 embedding 接口）
 
 # 3. 启动后端
 python -m backend.main
@@ -159,20 +160,64 @@ curl -X POST http://localhost:8000/api/v1/ask \
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                      # 自动带覆盖率，门槛 80%
-pytest --cov=backend --cov-report=term-missing
+pytest
+pytest --cov=backend --cov-report=term-missing   # 447 passed，覆盖率 99.24%
 ```
 
-396 个用例，覆盖率 99.5%。pytest 只替换**外部边界**（LLM 链、embedding、akshare/yfinance），
+447 个用例，覆盖率 99.24%。pytest 只替换**外部边界**（LLM 链、embedding、akshare/yfinance），
 路由、中间件、异常处理、四阶段编排、双写与差集自愈逻辑全部真实执行。
 
 prompt 是核心资产，渲染结果有 golden 基线；有意修改后跑 `python tests/regen_prompts_golden.py`
 重新生成，让 diff 进 code review。
 
-检索质量另有一个小规模评测：`python tests/eval_retrieval.py`。16 条合成的报告片段、16 条可回答问题、
-6 条无关问题，用真实 embedding 算 hit@1/3/5、MRR，并输出相关/无关问题的 top1 分数分布。
-当前 hit@1/3/5 均为 1.00，相关 top1 分数 0.638–0.787，无关 0.416–0.525。样本是合成的、偏容易，
-这个 1.00 只说明链路通，不代表生产效果；也正因为样本小，没有据此加阈值。
+## 评测
+
+检索与生成评测不再用合成样本，固定读 `tests/fixtures/eval_reports/` 的 30 份真实 A 股报告快照
+（金融 / 白酒 / 新能源 / 医药各 7 家，另加家电、食品饮料各 1 家作为跨行业样本），
+问题集 80 条，事实、对比、观点、无法回答各 20 条。
+逐题期望报告与 evidence 在 `tests/eval_labels.md`，快照来源与生成时间在 `manifest.json`。
+一条命令跑完检索、生成和失败 case：
+
+```bash
+python tests/eval_suite.py
+```
+
+产物：`tests/eval_report.md`、`tests/eval_failures.md`、`tests/eval_retrieval_report.md`。
+生成侧真实调用 `/api/v1/ask`，回答与 judge 结果落盘缓存；除一次 judge rubric 纠错
+（评测报告「不调参声明」有披露）外，没有为了让指标好看做参数搜索。
+
+| 检索 | 题数 | hit@1 | hit@3 | hit@5 | MRR | recall@5 |
+|---|---:|---:|---:|---:|---:|---:|
+| 事实型 | 20 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 |
+| 跨股票对比型 | 20 | 0.45 | 0.95 | 1.00 | 0.69 | 0.66 |
+| 观点型 | 20 | 0.45 | 0.65 | 0.75 | 0.57 | 0.35 |
+| **可回答合计** | 60 | **0.63** | **0.87** | **0.92** | **0.76** | **0.67** |
+
+事实型问题里公司名和指标名几乎原样出现，hit@1 到 1.00 不代表检索强；
+对比型/观点型只有 0.45，主因是报告级向量把整份报告压成一个点，同行业、财务结构相近的报告
+距离很近，正确报告经常排在 top2–top5，而不是没被召回（对比型 hit@5 1.00、观点型 0.75，合计 0.92）。
+观点型 recall@5 只有 0.35，还因为期望集合常大于 5，结构上就覆盖不全。
+
+相似度阈值建议 **0.554**（无关问题 top1 的 P90）：无关问题误召回 10%，可回答问题漏召回 25%，
+保留率 75%。缺字段型问题的 top1 **100% 高于阈值**——检索到了正确公司，但报告里没有该字段，
+阈值救不了，只能靠 prompt / 拒答判断；生产 `/ask` 没有据此加阈值。
+
+生成侧 30 条（可回答 20，无法回答 10）：
+
+| 指标 | 结果 |
+|---|---|
+| 引用准确率（judge 逐条 `[n]`） | 80%（53/66） |
+| 拒答准确率 | 100%（10/10） |
+| 相关性（1–5） | 4.63（可回答 4.45） |
+| 编造 | 5 条 |
+| 失败 case | 9 条（judge 口径）：模型编造 5、引用不支撑 4 |
+
+Judge 与生成模型同为 `qwen-plus`，存在自偏好；人工抽查 10 条引用一致率 **8/10**，
+judge 对「仅有 / 均未提及」这类排他、范围性断言会误判，所以 80% 只能当方向性指标。
+另有一次已确认的 judge 漏判：C02 的引用 [5] 片段明确含 82.54%，judge 理由也写了应判 true，
+最终仍返回 false；报告保留原始判定、不手工改分，因此 80% 是偏保守口径。
+judge 对「先写错、后文自我修正」的中间句也较宽容，C02/C06 的首句与最终结论不一致，未计入编造。
+失败 case 的逐条归因和人工复核见 `tests/eval_failures.md`。
 
 CI（GitHub Actions）在 push / PR 时依次跑 ruff check、ruff format 检查、mypy、pytest 并上传覆盖率报告。
 
@@ -206,7 +251,9 @@ backend/
     ├── chroma_store.py  JSON 权威源 + ChromaDB 语义索引
     └── embeddings.py    向量化（分批 + 退避）
 frontend/                Streamlit 看板
-tests/                   unit（纯逻辑）/ integration（跨模块协作）/ eval_retrieval.py（检索评测）
+tests/                   unit（纯逻辑）/ integration（跨模块协作）
+                         eval_suite.py（一条命令跑评测）/ eval_build_dataset.py
+                         eval_generation.py / eval_retrieval.py / eval_collect.py
 ```
 
 ## 已知局限
@@ -217,8 +264,9 @@ tests/                   unit（纯逻辑）/ integration（跨模块协作）/ 
 - **一次分析约 45 秒**（5 次 LLM 调用）；命中缓存时约 1.6 秒。
 - **问答只基于已存报告**：没分析过的股票不在检索范围；问题超出报告覆盖范围时，
   prompt 要求模型明确说「现有报告未覆盖」，而不是补全常识。
-- **检索评测只有 16 条合成样本**：hit@k 只能当链路自检，不能代替真实标注集；
-  生成侧也没有自动 groundedness 评估，只能靠人工抽查引用。
+- **评测样本与 judge 仍有局限**：30 份报告、80 条问题，四个主行业各 7 家，另有 2 家跨行业样本；
+  报告级检索不切分，观点型 recall@5 只有 0.35；judge 与生成模型同源，人工一致率 8/10，
+  引用准确率 80% 是偏保守口径。这些数字用于暴露问题，不代表全市场效果。
 - **没有鉴权体系**，仅适合本地 / 内网部署。`/metrics` 能反映流量与 token 用量，
   公网暴露前需要加访问控制。
 
