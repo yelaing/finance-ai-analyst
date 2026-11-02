@@ -48,6 +48,18 @@ services:
       - frontend/app.py
       - --server.address=0.0.0.0
       - --server.port=8501
+    # 镜像里的 HEALTHCHECK 探的是后端的 8000，这里跑的是 streamlit 8501，
+    # 不覆盖会一直 unhealthy（页面能用，自检恒红）。改用 streamlit 自带的健康端点。
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     depends_on:
       backend:
         condition: service_healthy
