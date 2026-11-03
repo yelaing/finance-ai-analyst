@@ -161,10 +161,10 @@ curl -X POST http://localhost:8000/api/v1/ask \
 ```bash
 pip install -r requirements-dev.txt
 pytest
-pytest --cov=backend --cov-report=term-missing   # 461 passed，覆盖率 99.24%
+pytest --cov=backend --cov-report=term-missing   # 462 passed，覆盖率 99.24%
 ```
 
-461 个用例，覆盖率 99.24%。pytest 只替换**外部边界**（LLM 链、embedding、akshare/yfinance），
+462 个用例，覆盖率 99.24%。pytest 只替换**外部边界**（LLM 链、embedding、akshare/yfinance），
 路由、中间件、异常处理、四阶段编排、双写与差集自愈逻辑全部真实执行。
 
 prompt 是核心资产，渲染结果有 golden 基线；有意修改后跑 `python tests/regen_prompts_golden.py`
