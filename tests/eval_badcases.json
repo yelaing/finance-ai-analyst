@@ -1,0 +1,322 @@
+{
+  "C01:generation_failure": {
+    "category": "comparison",
+    "failure_type": "generation_failure",
+    "first_seen": "20261103-153020",
+    "id": "C01",
+    "last_seen": "20261103-160001",
+    "reason": "模型编造",
+    "severity": "high",
+    "status": "open"
+  },
+  "C02:generation_failure": {
+    "category": "comparison",
+    "failure_type": "generation_failure",
+    "first_seen": "20261103-153020",
+    "id": "C02",
+    "last_seen": "20261103-160001",
+    "reason": "引用不支撑",
+    "severity": "high",
+    "status": "open"
+  },
+  "C03:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C03",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "C04:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C04",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "C07:generation_failure": {
+    "category": "comparison",
+    "failure_type": "generation_failure",
+    "first_seen": "20261103-153020",
+    "id": "C07",
+    "last_seen": "20261103-160001",
+    "reason": "模型编造",
+    "severity": "high",
+    "status": "open"
+  },
+  "C07:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C07",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "C08:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C08",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "C09:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C09",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "C11:generation_failure": {
+    "category": "comparison",
+    "failure_type": "generation_failure",
+    "first_seen": "20261103-153020",
+    "id": "C11",
+    "last_seen": "20261103-160001",
+    "reason": "模型编造",
+    "severity": "high",
+    "status": "open"
+  },
+  "C11:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C11",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "C12:generation_failure": {
+    "category": "comparison",
+    "failure_type": "generation_failure",
+    "first_seen": "20261103-153020",
+    "id": "C12",
+    "last_seen": "20261103-160001",
+    "reason": "模型编造",
+    "severity": "high",
+    "status": "open"
+  },
+  "C14:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C14",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "C15:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C15",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "C16:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C16",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "C17:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C17",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "C19:retrieval_top1_miss": {
+    "category": "comparison",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "C19",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "O01:generation_failure": {
+    "category": "opinion",
+    "failure_type": "generation_failure",
+    "first_seen": "20261103-153020",
+    "id": "O01",
+    "last_seen": "20261103-160001",
+    "reason": "模型编造",
+    "severity": "high",
+    "status": "open"
+  },
+  "O02:retrieval_top1_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "O02",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "O03:retrieval_top5_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top5_miss",
+    "first_seen": "20261103-153020",
+    "id": "O03",
+    "last_seen": "20261103-160001",
+    "reason": "top5 全漏",
+    "severity": "high",
+    "status": "open"
+  },
+  "O04:generation_failure": {
+    "category": "opinion",
+    "failure_type": "generation_failure",
+    "first_seen": "20261103-153020",
+    "id": "O04",
+    "last_seen": "20261103-154617",
+    "reason": "模型编造",
+    "severity": "high",
+    "status": "open"
+  },
+  "O04:retrieval_top1_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "O04",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "O07:generation_failure": {
+    "category": "opinion",
+    "failure_type": "generation_failure",
+    "first_seen": "20261103-153020",
+    "id": "O07",
+    "last_seen": "20261103-153020",
+    "reason": "模型编造",
+    "severity": "high",
+    "status": "open"
+  },
+  "O08:retrieval_top1_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "O08",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "O09:retrieval_top5_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top5_miss",
+    "first_seen": "20261103-153020",
+    "id": "O09",
+    "last_seen": "20261103-160001",
+    "reason": "top5 全漏",
+    "severity": "high",
+    "status": "open"
+  },
+  "O10:generation_failure": {
+    "category": "opinion",
+    "failure_type": "generation_failure",
+    "first_seen": "20261103-153020",
+    "id": "O10",
+    "last_seen": "20261103-160001",
+    "reason": "引用不支撑",
+    "severity": "high",
+    "status": "open"
+  },
+  "O10:retrieval_top1_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "O10",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "O13:generation_failure": {
+    "category": "opinion",
+    "failure_type": "generation_failure",
+    "first_seen": "20261103-153020",
+    "id": "O13",
+    "last_seen": "20261103-160001",
+    "reason": "模型编造",
+    "severity": "high",
+    "status": "open"
+  },
+  "O14:retrieval_top1_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "O14",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  },
+  "O15:retrieval_top5_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top5_miss",
+    "first_seen": "20261103-153020",
+    "id": "O15",
+    "last_seen": "20261103-160001",
+    "reason": "top5 全漏",
+    "severity": "high",
+    "status": "open"
+  },
+  "O17:retrieval_top5_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top5_miss",
+    "first_seen": "20261103-153020",
+    "id": "O17",
+    "last_seen": "20261103-160001",
+    "reason": "top5 全漏",
+    "severity": "high",
+    "status": "open"
+  },
+  "O18:retrieval_top5_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top5_miss",
+    "first_seen": "20261103-153020",
+    "id": "O18",
+    "last_seen": "20261103-160001",
+    "reason": "top5 全漏",
+    "severity": "high",
+    "status": "open"
+  },
+  "O20:retrieval_top1_miss": {
+    "category": "opinion",
+    "failure_type": "retrieval_top1_miss",
+    "first_seen": "20261103-153020",
+    "id": "O20",
+    "last_seen": "20261103-160001",
+    "reason": "top1 未命中",
+    "severity": "low",
+    "status": "open"
+  }
+}
