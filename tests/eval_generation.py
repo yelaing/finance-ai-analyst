@@ -445,20 +445,22 @@ def judge_answer(query: dict, answer: dict, refresh: bool = False) -> dict:
     if not refresh and key in cache:
         return cache[key]
 
-    raw = _get_judge_chain().invoke(
-        {
-            "question": query["question"],
-            "reference": query.get("reference_answer") or "",
-            "answer": answer["answer"],
-            "context": _format_context(answer["citations"]),
-            "count": len(answer["citations"]),
-        }
-    )
-    if not isinstance(raw, dict):
-        raise ValueError(f"judge 返回不是 JSON 对象：{raw!r}")
-    relevance = raw.get("relevance")
-    if not isinstance(relevance, (int, float)):
-        raise ValueError(f"judge 缺少 relevance：{raw!r}")
+    payload = {
+        "question": query["question"],
+        "reference": query.get("reference_answer") or "",
+        "answer": answer["answer"],
+        "context": _format_context(answer["citations"]),
+        "count": len(answer["citations"]),
+    }
+    # judge 偶尔返回 None 或缺字段，重试比让整轮评测作废便宜
+    for attempt in range(3):
+        raw = _get_judge_chain().invoke(payload)
+        relevance = raw.get("relevance") if isinstance(raw, dict) else None
+        if isinstance(relevance, (int, float)):
+            break
+        print(f"judge 返回非法结果（第 {attempt + 1} 次），重试：{raw!r}", file=sys.stderr)
+    else:
+        raise ValueError(f"judge 连续 3 次未返回有效结果：{raw!r}")
 
     citations = []
     for item in raw.get("citations") or []:

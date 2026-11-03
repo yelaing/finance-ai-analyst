@@ -161,10 +161,10 @@ curl -X POST http://localhost:8000/api/v1/ask \
 ```bash
 pip install -r requirements-dev.txt
 pytest
-pytest --cov=backend --cov-report=term-missing   # 447 passed，覆盖率 99.24%
+pytest --cov=backend --cov-report=term-missing   # 461 passed，覆盖率 99.24%
 ```
 
-447 个用例，覆盖率 99.24%。pytest 只替换**外部边界**（LLM 链、embedding、akshare/yfinance），
+461 个用例，覆盖率 99.24%。pytest 只替换**外部边界**（LLM 链、embedding、akshare/yfinance），
 路由、中间件、异常处理、四阶段编排、双写与差集自愈逻辑全部真实执行。
 
 prompt 是核心资产，渲染结果有 golden 基线；有意修改后跑 `python tests/regen_prompts_golden.py`
@@ -182,7 +182,8 @@ prompt 是核心资产，渲染结果有 golden 基线；有意修改后跑 `pyt
 python tests/eval_suite.py
 ```
 
-产物：`tests/eval_report.md`、`tests/eval_failures.md`、`tests/eval_retrieval_report.md`。
+产物：`tests/eval_report.md`、`tests/eval_failures.md`、`tests/eval_retrieval_report.md`，
+以及每次运行的归档 `tests/eval_runs/<run_id>/`（见下节）。
 生成侧真实调用 `/api/v1/ask`，回答与 judge 结果落盘缓存；除一次 judge rubric 纠错
 （评测报告「不调参声明」有披露）外，没有为了让指标好看做参数搜索。
 
@@ -220,6 +221,50 @@ judge 对「先写错、后文自我修正」的中间句也较宽容，C02/C06 
 失败 case 的逐条归因和人工复核见 `tests/eval_failures.md`。
 
 CI（GitHub Actions）在 push / PR 时依次跑 ruff check、ruff format 检查、mypy、pytest 并上传覆盖率报告。
+
+### 运行归档、版本对比与回归门禁
+
+每次 `python tests/eval_suite.py` 都会把结果写进新的归档目录
+`tests/eval_runs/<YYYYMMDD-HHMMSS[-n]>/`，包含 `report.md`、`failures.md`、
+`retrieval.json`、`generation.json`（full 模式）和 `meta.json`
+（run_id、commit、分支、开始时间、耗时、是否 `--refresh`、运行前 badcase 数）。
+归档目录不入库；能进 git 的是两张跟踪表：
+
+- `tests/eval_history.md`：每次运行追加一行，commit + 各指标，直接在 GitHub 上看走势；
+- `tests/eval_badcases.json`：按 `id + failure_type` 跟踪失败，`status`
+  可人工改成 `open` / `fixed` / `wontfix`，下次运行只更新 `last_seen`，不覆盖状态。
+
+归档之后还能顺手对比：
+
+```bash
+python tests/eval_compare.py tests/eval_runs/<A> tests/eval_runs/<B>
+python tests/eval_suite.py --compare tests/eval_runs/<A>   # 本次跑完和 <A> 比
+```
+
+对比输出包括 hit@1/3/5、MRR、recall@5、引用准确率、拒答准确率、相关性的差值
+（↑/↓ + 幅度），以及按 case id 对齐的**新增失败 / 已修复 / 仍失败**。
+`failures.md` 也按 id 聚合：同一道题的多种失败类型合在一个小节下，severity
+自动推导（top5 未命中和生成失败 high，top1 未命中 low）。
+
+阈值放在 `tests/eval_thresholds.json`，不写死在代码里，调阈值只改这个文件。
+当前值来自同版本代码 3 次独立跑批的均值与波动：检索指标零波动，相关性
+4.50–4.53，引用准确率 69%–81%（judge 抖动），因此引用阈值取 0.65；
+发布报告仍采用最早那次经过人工抽查的完整跑批，不用单次最好成绩。门禁：
+
+```bash
+python tests/eval_gate.py                    # 默认检查最新一次运行
+python tests/eval_gate.py --run tests/eval_runs/<dir>
+```
+
+指标跌破阈值、或出现**新增 badcase** 都会非零退出，并打印是哪项、差多少。
+阈值由同版本代码多次运行的均值与波动推导，不是单次结果倒推。
+首次基线运行（运行前 badcase 数为 0）只记录不判定，避免第一次跑就红。
+
+检索评测需要真实 embedding API（30 份报告 + 80 条问题），所以不进 push/PR CI；
+手动触发用 `.github/workflows/eval-retrieval.yml`（`workflow_dispatch`），
+需配置 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` 三个 secrets，
+embedding 模型名不是默认 `text-embedding-v3` 时再加 `EMBEDDING_MODEL`。
+生成侧要调 LLM 和 judge，一律不进 CI。
 
 ## 目录结构
 

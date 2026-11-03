@@ -36,3 +36,4 @@ tests/fixtures/eval_answers.json
 tests/fixtures/eval_judge.json
 tests/eval_retrieval_report.md
 tests/eval_generation_report.md
+tests/eval_runs/

@@ -8,7 +8,10 @@
 """
 
 import argparse
+import json
+import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -16,10 +19,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from eval_compare import failure_entries  # noqa: E402
 from eval_generation import (  # noqa: E402
     DEFAULT_DATASET,
     DEFAULT_REPORTS,
-    render_failures_markdown,
     render_generation_markdown,
     run_generation,
 )
@@ -28,6 +31,15 @@ from eval_retrieval import render_retrieval_markdown, run_retrieval  # noqa: E40
 REPORT_PATH = Path(__file__).resolve().parent / "eval_report.md"
 FAILURES_PATH = Path(__file__).resolve().parent / "eval_failures.md"
 RETRIEVAL_REPORT_PATH = Path(__file__).resolve().parent / "eval_retrieval_report.md"
+RUNS_DIR = Path(__file__).resolve().parent / "eval_runs"
+HISTORY_PATH = Path(__file__).resolve().parent / "eval_history.md"
+BADCASES_PATH = Path(__file__).resolve().parent / "eval_badcases.json"
+
+HISTORY_HEADER = (
+    "# 评测运行历史\n\n"
+    "| 时间 | commit | mode | hit@1 | hit@3 | hit@5 | 拒答 | 相关性 |\n"
+    "|---|---|---|---:|---:|---:|---:|---:|\n"
+)
 
 
 def _pct(value) -> str:
@@ -38,122 +50,8 @@ def _num(value) -> str:
     return "—" if value is None else f"{value:.2f}"
 
 
-def _retrieval_top1(result: dict) -> str | None:
-    ranked = result.get("ranked") or []
-    return result.get("top1") or (ranked[0] if ranked else None)
-
-
 def _escape_cell(text: str) -> str:
     return str(text).replace("|", "\\|").replace("\n", " ")
-
-
-def render_retrieval_failures(retrieval: dict) -> str:
-    """列出两类检索失败：top5 全漏，以及 top1 未命中但 top5 命中。
-
-    多答案题的期望集合可能大于 5，top5 不可能全覆盖；那属于 recall@5 的
-    统计范围，不是「检索没召回」。top1 未命中的题单独列出，用来解释
-    hit@1/MRR 为什么低，同时说明 `/ask` 仍可能拿到正确上下文。
-    """
-    full_misses = []
-    top1_misses = []
-    for result in retrieval["results"]:
-        if not result["answerable"] or not result["expected"]:
-            continue
-        expected = set(result["expected"])
-        top5 = set(result["ranked"][:5])
-        if not top5 & expected:
-            full_misses.append(result)
-        elif _retrieval_top1(result) not in expected:
-            top1_misses.append(result)
-
-    names = retrieval["dataset"].get("report_names") or {}
-    lines = [
-        "# 检索侧失败 case",
-        "",
-        f"共 {len(full_misses)} 条题目 top5 完全没有命中期望报告，"
-        f"{len(top1_misses)} 条 top1 未命中但 top5 内有期望报告。"
-        "多答案题的部分漏召回看检索报告里的 recall@5，不在这里重复列。",
-        "",
-    ]
-    if not full_misses and not top1_misses:
-        lines.append("本次 80 条检索评测没有 top5 全漏或 top1 未命中的题目。")
-        lines.append("")
-        return "\n".join(lines)
-
-    if full_misses:
-        lines.extend(
-            [
-                "## top5 全漏",
-                "",
-                "| ID | 品类 | 问题 | 期望报告（前 5） | top5 |",
-                "|---|---|---|---|---|",
-            ]
-        )
-        for result in full_misses:
-            top5 = "、".join(
-                f"{names.get(identifier, identifier)}（{identifier}，{score}）"
-                for identifier, score in zip(
-                    result["ranked"][:5], result["scores"][:5], strict=False
-                )
-            )
-            expected_names = [
-                names.get(identifier, identifier) for identifier in result["expected"]
-            ]
-            expected = "、".join(expected_names[:5])
-            if len(expected_names) > 5:
-                expected += f" 等 {len(expected_names)} 份"
-            lines.append(
-                f"| {result['id']} | {result['category']} | "
-                f"{_escape_cell(result['question'][:60])} | {expected} | {top5} |"
-            )
-        lines.extend(
-            [
-                "",
-                "原因：报告级向量把整份报告压成一个点，长报告里的单一事实容易被其他主题稀释；"
-                "这不是调阈值能解决的，需要切分或混合检索。",
-                "",
-            ]
-        )
-
-    if top1_misses:
-        lines.extend(
-            [
-                "## top1 未命中但 top5 命中",
-                "",
-                "| ID | 品类 | 问题 | top1（分数） | 首个命中排名 | 期望报告数 |",
-                "|---|---|---|---|---:|---:|",
-            ]
-        )
-        for result in top1_misses:
-            top1 = _retrieval_top1(result)
-            top1_score = result["scores"][0] if result.get("scores") else None
-            first_hit = result.get("first_hit")
-            if first_hit is None:
-                first_hit = next(
-                    (
-                        rank
-                        for rank, identifier in enumerate(result["ranked"], 1)
-                        if identifier in set(result["expected"])
-                    ),
-                    None,
-                )
-            lines.append(
-                f"| {result['id']} | {result['category']} | "
-                f"{_escape_cell(result['question'][:60])} | "
-                f"{names.get(top1, top1)}（{top1_score}） | {first_hit} | "
-                f"{len(result['expected'])} |"
-            )
-        lines.extend(
-            [
-                "",
-                "原因：同一行业、财务结构相近的报告向量距离很近，top1 被其中一份"
-                "未命中期望集合的报告占住；`/ask` 仍能从 top5 拿到正确报告，"
-                "但 hit@1/MRR 会下降。要改善得靠 rerank、按公司/指标拆分子块"
-                "或混合检索，不是调阈值。",
-                "",
-            ]
-        )
-    return "\n".join(lines)
 
 
 def render_report(retrieval: dict, generation: dict) -> str:
@@ -266,25 +164,310 @@ def _failure_counts(failures: list[dict]):
     return Counter(result["failure"]["primary"] for result in failures)
 
 
+# ---------- 运行归档 / badcase / 历史表 ----------
+
+
+def failure_rows(retrieval: dict, generation: dict | None) -> list[dict]:
+    """检索与生成失败统一成 (id, failure_type) 条目，severity 自动推导。"""
+    return failure_entries(retrieval, generation)
+
+
+def merge_badcases(existing: dict, rows: list[dict], run_id: str) -> dict:
+    """合并本次失败：保留人工维护的 status 与 first_seen，只更新 last_seen/reason。"""
+    merged = dict(existing)
+    for row in rows:
+        key = f"{row['id']}:{row['failure_type']}"
+        entry = merged.get(key)
+        if entry is None:
+            merged[key] = {
+                **row,
+                "first_seen": run_id,
+                "last_seen": run_id,
+                "status": "open",
+            }
+        else:
+            entry.update(
+                {
+                    "category": row["category"],
+                    "reason": row["reason"],
+                    "severity": row["severity"],
+                    "last_seen": run_id,
+                }
+            )
+    return dict(sorted(merged.items()))
+
+
+def append_history(path: Path, meta: dict, retrieval: dict, generation: dict | None) -> None:
+    """每次运行 append 一行；文件不存在时先写表头。"""
+    overall = retrieval["summary"]["__overall__"]
+    refusal = _pct(generation["summary"]["refusal_accuracy"]) if generation else "—"
+    relevance = _num(generation["summary"]["relevance"]) if generation else "—"
+    stamp = meta.get("started_at") or datetime.now().isoformat(timespec="minutes")
+    row = (
+        f"| {stamp[:16].replace('T', ' ')} | "
+        f"{(meta.get('commit') or 'unknown')[:7]} | {meta.get('mode', 'full')} | "
+        f"{_num(overall.get('hit@1'))} | {_num(overall.get('hit@3'))} | "
+        f"{_num(overall.get('hit@5'))} | {refusal} | {relevance} |\n"
+    )
+    path = Path(path)
+    if path.exists():
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(row)
+    else:
+        path.write_text(HISTORY_HEADER + row, encoding="utf-8")
+
+
+def write_run_dir(
+    runs_dir: Path,
+    meta: dict,
+    retrieval: dict,
+    generation: dict | None,
+    report: str,
+    failures: str,
+) -> Path:
+    run_dir = Path(runs_dir) / meta["run_id"]
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "report.md").write_text(report, encoding="utf-8")
+    (run_dir / "failures.md").write_text(failures, encoding="utf-8")
+    (run_dir / "retrieval.json").write_text(
+        json.dumps(retrieval, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    if generation is not None:
+        (run_dir / "generation.json").write_text(
+            json.dumps(generation, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    (run_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return run_dir
+
+
+def _git(*args: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def _top1(result: dict):
+    ranked = result.get("ranked") or []
+    return result.get("top1") or (ranked[0] if ranked else None)
+
+
+def render_retrieval_only_report(retrieval: dict) -> str:
+    return "\n".join(
+        [
+            "# 检索评测（retrieval-only）",
+            "",
+            "本次只跑检索，未调用生成模型与 judge。",
+            "",
+            render_retrieval_markdown(retrieval),
+        ]
+    )
+
+
+def render_failures_unified(retrieval: dict, generation: dict | None = None) -> str:
+    """按 case id 聚合检索与生成失败，同一题只出现一个小节。"""
+    rows = failure_rows(retrieval, generation)
+    if not rows:
+        return "# 评测失败 case\n\n本次没有失败 case。\n"
+
+    retrieval_by_id = {result["id"]: result for result in retrieval.get("results", [])}
+    generation_by_id = {
+        result["id"]: result
+        for result in (generation or {}).get("results", [])
+        if result.get("failure")
+    }
+    names = (retrieval.get("dataset") or {}).get("report_names") or {}
+
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        grouped.setdefault(row["id"], []).append(row)
+
+    high = sum(1 for row in rows if row["severity"] == "high")
+    low = len(rows) - high
+    lines = [
+        "# 评测失败 case",
+        "",
+        f"共 {len(grouped)} 个 case（high {high} / low {low}），按 case id 聚合；"
+        "同一题的检索与生成失败合在同一小节，不再重复行。"
+        "严重度自动推导：top5 全漏、生成失败为 high，top1 未命中但 top5 命中为 low。",
+        "",
+        "已人工复核：C02 的「引用不支撑」是 judge 漏判（引用[5]片段明确含中信证券 82.54%），"
+        "这里保留原始判定、不手工改分。",
+        "",
+        "| ID | 品类 | 严重度 | 失败类型 | 失败原因 |",
+        "|---|---|---|---|---|",
+    ]
+    for case_id, case_rows in grouped.items():
+        types = "、".join(row["failure_type"] for row in case_rows)
+        reasons = "；".join(row["reason"] for row in case_rows)
+        lines.append(
+            f"| {case_id} | {case_rows[0]['category']} | {case_rows[0]['severity']} | "
+            f"{types} | {_escape_cell(reasons)} |"
+        )
+    lines.append("")
+
+    for case_id, case_rows in grouped.items():
+        sample = retrieval_by_id.get(case_id) or generation_by_id.get(case_id) or {}
+        lines.extend(
+            [
+                f"## {case_id} {case_rows[0]['category']}（{case_rows[0]['severity']}）",
+                "",
+                f"**问题**：{sample.get('question', '')}",
+                "",
+                f"**失败类型**：{'、'.join(row['failure_type'] for row in case_rows)}",
+                "",
+            ]
+        )
+
+        retrieval_row = next(
+            (row for row in case_rows if row["failure_type"].startswith("retrieval_")), None
+        )
+        if retrieval_row is not None:
+            result = retrieval_by_id[case_id]
+            expected = [names.get(identifier, identifier) for identifier in result["expected"]]
+            top5 = "；".join(
+                f"{names.get(identifier, identifier)}（{identifier}，{score}）"
+                for identifier, score in zip(
+                    result["ranked"][:5], result["scores"][:5], strict=False
+                )
+            )
+            top1 = _top1(result)
+            lines.extend(
+                [
+                    f"**检索侧**：{retrieval_row['reason']}",
+                    "",
+                    f"- 期望报告：{'、'.join(expected)}",
+                    f"- top1：{names.get(top1, top1)}（{result['scores'][0] if result['scores'] else '—'}）",
+                    f"- top5：{top5}",
+                    f"- 首个命中排名：{result.get('first_hit') or '无'}",
+                    "",
+                ]
+            )
+
+        generation_row = next(
+            (row for row in case_rows if row["failure_type"] == "generation_failure"), None
+        )
+        if generation_row is not None:
+            result = generation_by_id[case_id]
+            metrics = result["citation_metrics"]
+            lines.extend(
+                [
+                    f"**期望**：{result.get('reference_answer')}",
+                    "",
+                    f"**实际回答**：{result.get('answer')}",
+                    "",
+                    "**检索 top5**："
+                    + "；".join(
+                        f"[{index}] {hit.get('name')}（{hit.get('symbol')}，{hit.get('score')}）"
+                        for index, hit in enumerate(result.get("citations") or [], 1)
+                    ),
+                    "",
+                    f"**输出引用**：{metrics['indices'] or '无'}；"
+                    f"judge 支持 {metrics['supported_indices'] or '无'}；"
+                    f"越界 {metrics['invalid_indices'] or '无'}",
+                    "",
+                    f"**Judge**：relevance={result['judge']['relevance']}，"
+                    f"refused={result['judge']['refused']}，"
+                    f"fabricated={result['judge']['fabricated']}；"
+                    f"{result['judge']['notes']}",
+                    "",
+                ]
+            )
+
+        lines.extend(
+            [
+                f"**失败原因**：{'；'.join(row['reason'] for row in case_rows)}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def render_retrieval_failures(retrieval: dict) -> str:
+    """兼容旧调用：只渲染检索侧失败，输出与统一渲染器一致。"""
+    return render_failures_unified(retrieval)
+
+
 def run_suite(
     dataset_path: Path = DEFAULT_DATASET,
     reports_path: Path = DEFAULT_REPORTS,
     refresh: bool = False,
+    mode: str = "full",
+    runs_dir: Path = RUNS_DIR,
+    history_path: Path = HISTORY_PATH,
+    badcases_path: Path = BADCASES_PATH,
 ) -> dict:
+    if mode not in ("full", "retrieval"):
+        raise ValueError(f"未知模式：{mode}")
+
+    started = datetime.now()
+    started_monotonic = time.monotonic()
     retrieval = run_retrieval(dataset_path, reports_path)
-    threshold = retrieval["threshold"]["threshold"]
-    generation = run_generation(
-        dataset_path,
-        reports_path,
-        threshold=threshold,
-        refresh=refresh,
+    generation = None
+    if mode == "full":
+        threshold = retrieval["threshold"]["threshold"]
+        generation = run_generation(
+            dataset_path,
+            reports_path,
+            threshold=threshold,
+            refresh=refresh,
+        )
+    duration = time.monotonic() - started_monotonic
+
+    report = (
+        render_report(retrieval, generation)
+        if generation is not None
+        else render_retrieval_only_report(retrieval)
     )
-    report = render_report(retrieval, generation)
-    failures = render_failures_markdown(generation) + "\n" + render_retrieval_failures(retrieval)
-    REPORT_PATH.write_text(report, encoding="utf-8")
-    FAILURES_PATH.write_text(failures, encoding="utf-8")
+    failures = render_failures_unified(retrieval, generation)
+
+    if generation is not None:
+        REPORT_PATH.write_text(report, encoding="utf-8")
+        FAILURES_PATH.write_text(failures, encoding="utf-8")
     RETRIEVAL_REPORT_PATH.write_text(render_retrieval_markdown(retrieval), encoding="utf-8")
-    return {"retrieval": retrieval, "generation": generation}
+
+    run_id = started.strftime("%Y%m%d-%H%M%S")
+    suffix = 1
+    while (Path(runs_dir) / run_id).exists():
+        run_id = f"{started.strftime('%Y%m%d-%H%M%S')}-{suffix}"
+        suffix += 1
+
+    badcases_path = Path(badcases_path)
+    existing = (
+        json.loads(badcases_path.read_text(encoding="utf-8")) if badcases_path.exists() else {}
+    )
+    meta = {
+        "run_id": run_id,
+        "commit": _git("rev-parse", "HEAD"),
+        "branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
+        "started_at": started.isoformat(timespec="seconds"),
+        "duration_seconds": round(duration, 1),
+        "refresh": bool(refresh),
+        "mode": mode,
+        "badcases_before": len(existing),
+    }
+    merged = merge_badcases(existing, failure_rows(retrieval, generation), run_id)
+    badcases_path.write_text(
+        json.dumps(merged, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    run_dir = write_run_dir(runs_dir, meta, retrieval, generation, report, failures)
+    append_history(history_path, meta, retrieval, generation)
+    return {
+        "retrieval": retrieval,
+        "generation": generation,
+        "run_dir": run_dir,
+        "meta": meta,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -292,19 +475,32 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     parser.add_argument("--reports", type=Path, default=DEFAULT_REPORTS)
     parser.add_argument("--refresh", action="store_true", help="忽略回答与 judge 缓存")
+    parser.add_argument(
+        "--mode",
+        choices=("full", "retrieval"),
+        default="full",
+        help="retrieval 只跑检索，不调用生成模型与 judge",
+    )
+    parser.add_argument("--compare", type=Path, default=None, help="跑完与指定 run 目录对比")
     args = parser.parse_args(argv)
 
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    result = run_suite(args.dataset, args.reports, refresh=args.refresh)
-    print(REPORT_PATH.read_text(encoding="utf-8"))
-    print(f"失败 case 已写入 {FAILURES_PATH}")
+    result = run_suite(args.dataset, args.reports, refresh=args.refresh, mode=args.mode)
+    print((result["run_dir"] / "report.md").read_text(encoding="utf-8"))
+    print(f"运行归档已写入 {result['run_dir']}")
+    print(f"失败 case 已写入 {result['run_dir'] / 'failures.md'}")
     print(f"检索评测已写入 {RETRIEVAL_REPORT_PATH}")
+    generation = result["generation"]
     print(
         f"检索题数={len(result['retrieval']['results'])}，"
-        f"生成题数={result['generation']['summary']['count']}"
+        f"生成题数={generation['summary']['count'] if generation else 0}"
     )
+    if args.compare:
+        from eval_compare import compare_runs
+
+        print(compare_runs(args.compare, result["run_dir"]))
     return 0
 
 

@@ -274,3 +274,30 @@ def test_classify_failure_marks_fabrication_and_ignores_correct_refusal():
         )
         is None
     )
+
+
+def test_judge_answer_retries_malformed_output(tmp_path, monkeypatch):
+    generation = load_generation()
+    monkeypatch.setattr(generation, "JUDGE_CACHE", tmp_path / "eval_judge.json")
+    valid = {
+        "citations": [],
+        "relevance": 4,
+        "refused": False,
+        "fabricated": False,
+        "notes": "",
+    }
+    responses = iter([None, {"citations": []}, valid])
+
+    class Chain:
+        def invoke(self, payload):
+            return next(responses)
+
+    monkeypatch.setattr(generation, "_get_judge_chain", lambda: Chain())
+
+    verdict = generation.judge_answer(
+        {"id": "Q", "question": "q", "reference_answer": "r"},
+        {"answer": "a", "citations": []},
+        refresh=True,
+    )
+
+    assert verdict["relevance"] == 4

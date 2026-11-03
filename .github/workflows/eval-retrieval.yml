@@ -1,0 +1,64 @@
+name: Manual Eval (retrieval)
+
+# 检索评测会真实调用 embedding API（30 份报告 + 80 条问题），
+# 没有密钥或额度时会失败，因此只手动触发，不进 push/PR。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  retrieval-eval:
+    name: retrieval eval + gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements-dev.txt
+
+      - name: 检查密钥
+        env:
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+        run: |
+          for name in LLM_BASE_URL LLM_API_KEY LLM_MODEL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::缺少仓库 secret $name"
+              exit 1
+            fi
+          done
+
+      - name: 检索评测
+        env:
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          EMBEDDING_MODEL: ${{ secrets.EMBEDDING_MODEL }}
+        run: |
+          # 未配置时 GitHub 会注入空字符串，会覆盖默认模型名，必须 unset
+          if [ -z "$EMBEDDING_MODEL" ]; then unset EMBEDDING_MODEL; fi
+          python tests/eval_suite.py --mode retrieval
+
+      - name: 回归门禁
+        run: python tests/eval_gate.py
+
+      - name: 上传运行归档
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-run
+          path: |
+            tests/eval_runs/
+            tests/eval_badcases.json
+            tests/eval_history.md
+          if-no-files-found: warn
