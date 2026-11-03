@@ -257,7 +257,6 @@ python tests/eval_gate.py --run tests/eval_runs/<dir>
 ```
 
 指标跌破阈值、或出现**新增 badcase** 都会非零退出，并打印是哪项、差多少。
-阈值由同版本代码多次运行的均值与波动推导，不是单次结果倒推。
 首次基线运行（运行前 badcase 数为 0）只记录不判定，避免第一次跑就红。
 
 检索评测需要真实 embedding API（30 份报告 + 80 条问题），所以不进 push/PR CI；
